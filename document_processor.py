@@ -877,13 +877,13 @@ Final consistent manuscript:"""
 
         model = str(ai_options.get("model", "")).strip()
         gemini_api_key = str(
-            ai_options.get("gemini_api_key", ai_options.get("api_key", os.getenv("GEMINI_API_KEY", "")))
+            ai_options.get("gemini_api_key") or ai_options.get("api_key") or os.getenv("GEMINI_API_KEY") or ""
         ).strip()
         openrouter_api_key = str(
-            ai_options.get("openrouter_api_key", os.getenv("OPENROUTER_API_KEY", ""))
+            ai_options.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY") or ""
         ).strip()
         agent_router_api_key = str(
-            ai_options.get("agent_router_api_key", os.getenv("AGENT_ROUTER_TOKEN", ""))
+            ai_options.get("agent_router_api_key") or os.getenv("AGENT_ROUTER_TOKEN") or ""
         ).strip()
 
         if provider == "gemini":

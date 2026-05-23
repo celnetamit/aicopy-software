@@ -10,6 +10,7 @@ import traceback
 import eel
 
 from document_processor import DocumentProcessor
+import manuscript_service
 
 
 processor = DocumentProcessor()
@@ -18,16 +19,7 @@ current_source_docx_path = ""
 original_text = ""
 corrected_text = ""
 full_corrected_text = ""
-runtime_telemetry = {
-    "export_attempts": 0,
-    "export_successes": 0,
-    "export_failures": 0,
-    "save_attempts": 0,
-    "save_successes": 0,
-    "save_failures": 0,
-    "save_fallback_used": 0,
-    "errors_by_code": {},
-}
+runtime_telemetry = manuscript_service.get_default_runtime_telemetry()
 
 def _runtime_base_dir() -> str:
     """Return base directory for source and PyInstaller-frozen runtime."""
@@ -109,23 +101,19 @@ def _load_text_to_state(file_name: str, text: str, source_docx_path: str = ""):
     }
 
 
-def _build_process_payload(original: str, corrected: str):
+def _build_process_payload(original: str, corrected: str, options: dict = None):
     """Build standard process response payload."""
-    return {
-        "success": True,
-        "text": corrected,
-        "original": original,
-        "word_count": len(corrected.split()),
-        "redline_html": processor.build_redline_html(original, corrected),
-        "corrected_annotated_html": processor.build_foreign_annotated_html(corrected),
-        "corrections_report": processor.build_corrections_report(original, corrected),
-        "noun_report": processor.build_noun_report(corrected),
-        "domain_report": processor.get_domain_report(),
-        "journal_profile_report": processor.get_journal_profile_report(),
-        "citation_reference_report": processor.get_citation_reference_report(),
-        "processing_audit": processor.get_processing_audit(),
-        "processing_note": getattr(processor, "_last_selection_note", ""),
-    }
+    source_type = "docx" if current_source_docx_path else "text"
+    return manuscript_service.build_process_payload(
+        processor=processor,
+        task_id="",
+        original_text=original,
+        corrected_text=corrected,
+        full_corrected_text=full_corrected_text,
+        source_type=source_type,
+        source_docx_path=current_source_docx_path,
+        options=options,
+    )
 
 
 def _build_download_filename(file_type: str) -> str:
@@ -206,7 +194,7 @@ def process_document(options):
 
         full_corrected_text = processor.process_text(original_text, options or {})
         corrected_text = full_corrected_text
-        return _build_process_payload(original_text, corrected_text)
+        return _build_process_payload(original_text, corrected_text, options)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -222,7 +210,7 @@ def apply_correction_group_decisions(group_decisions):
             return {"success": False, "error": "No corrected document available"}
 
         corrected_text = processor.apply_group_decisions(original_text, full_corrected_text, group_decisions or {})
-        return _build_process_payload(original_text, corrected_text)
+        return _build_process_payload(original_text, corrected_text, None)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -264,45 +252,29 @@ def get_ollama_models(ollama_host=None):
 def export_file(file_type):
     """Export clean/highlighted DOCX as base64 for browser download."""
     global original_text, corrected_text
-    temp_path = None
     runtime_telemetry["export_attempts"] += 1
     try:
         if not corrected_text.strip():
             runtime_telemetry["export_failures"] += 1
             return _error_payload("EXPORT_NO_CORRECTED_DOC", "No corrected document available")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
-            temp_path = handle.name
-
-        if file_type == "clean":
-            processor.generate_clean_docx(corrected_text, temp_path, source_docx_path=current_source_docx_path)
-        elif file_type in ("highlighted", "redline"):
-            processor.generate_highlighted_docx(
-                original_text,
-                corrected_text,
-                temp_path,
-                source_docx_path=current_source_docx_path,
-            )
-        else:
+        if file_type not in ("clean", "highlighted", "redline"):
             runtime_telemetry["export_failures"] += 1
             return _error_payload("EXPORT_UNSUPPORTED_TYPE", "Unsupported file type", file_type=str(file_type))
 
-        with open(temp_path, "rb") as infile:
-            encoded = base64.b64encode(infile.read()).decode("ascii")
-
+        res = manuscript_service.generate_docx_export_base64(
+            processor=processor,
+            original_text=original_text,
+            corrected_text=corrected_text,
+            file_type=file_type,
+            source_docx_path=current_source_docx_path,
+        )
         runtime_telemetry["export_successes"] += 1
-        return {
-            "success": True,
-            "file_name": _build_download_filename(file_type),
-            "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "base64_data": encoded,
-        }
+        res["file_name"] = _build_download_filename(file_type)
+        return res
     except Exception as e:
         runtime_telemetry["export_failures"] += 1
         return _error_payload("EXPORT_EXCEPTION", str(e))
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            os.unlink(temp_path)
 
 
 @eel.expose
@@ -352,18 +324,18 @@ def save_file(file_type):
             path = _build_fallback_save_path(file_type)
             runtime_telemetry["save_fallback_used"] += 1
 
-        if file_type == "clean":
-            processor.generate_clean_docx(corrected_text, path, source_docx_path=current_source_docx_path)
-        elif file_type in ("highlighted", "redline"):
-            processor.generate_highlighted_docx(
-                original_text,
-                corrected_text,
-                path,
-                source_docx_path=current_source_docx_path,
-            )
-        else:
+        if file_type not in ("clean", "highlighted", "redline"):
             runtime_telemetry["save_failures"] += 1
             return _error_payload("SAVE_UNSUPPORTED_TYPE", "Unsupported file type", file_type=str(file_type))
+
+        manuscript_service.generate_docx_file(
+            processor=processor,
+            original_text=original_text,
+            corrected_text=corrected_text,
+            file_type=file_type,
+            dest_path=path,
+            source_docx_path=current_source_docx_path,
+        )
 
         runtime_telemetry["save_successes"] += 1
         result = {"success": True, "path": path}
