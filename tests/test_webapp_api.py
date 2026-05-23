@@ -860,6 +860,50 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         task_run = payload.get("task_run") or {}
         self.assertTrue(task_run.get("id"))
 
+    def test_autopilot_route_returns_job_and_status(self):
+        self._login("writer@conwiz.in")
+
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "autopilot.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/autopilot",
+            {
+                "options": {
+                    "ai": {"enabled": False},
+                    "automation": {
+                        "auto_heal_bibliography": False,
+                        "heal_when_reference_issues_at_least": 99,
+                    },
+                }
+            },
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(payload.get("success"))
+        self.assertTrue(payload.get("queued"))
+        self.assertEqual(payload.get("task_id"), task_id)
+        self.assertIn((payload.get("job") or {}).get("status"), {"PENDING", "RUNNING", "SUCCEEDED"})
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertEqual(payload.get("task_id"), task_id)
+        self.assertIn("job", payload)
+        self.assertIn((payload.get("job") or {}).get("status"), {"PENDING", "RUNNING", "SUCCEEDED", "FAILED"})
+        self.assertIn("task_run", payload)
+        task_run = payload.get("task_run") or {}
+        self.assertTrue(task_run.get("id"))
+
+        status_token = str((task_run.get("status") or "")).upper()
+        self.assertIn(status_token, {"PENDING", "RUNNING", "SUCCEEDED", "FAILED"})
+
     def test_runtime_telemetry_captures_processing_mode_and_editing_controls(self):
         admin_client = WsgiTestClient(webapp.app)
         status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})

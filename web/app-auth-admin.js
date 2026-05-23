@@ -312,6 +312,7 @@ function applyTaskDetailsToState(task) {
     }
     if (authDom.saveCleanBtn) authDom.saveCleanBtn.disabled = !processed;
     if (authDom.saveHighlightBtn) authDom.saveHighlightBtn.disabled = !processed;
+    renderAutopilotStatusPanel(reports);
     appAuth.actions.refreshProcessButtonState();
     if (appAuth.actions && typeof appAuth.actions.renderFallbackInsightsFromCurrentState === 'function') {
         appAuth.actions.renderFallbackInsightsFromCurrentState();
@@ -325,6 +326,38 @@ function applyTaskDetailsToState(task) {
     appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
     renderTaskHistory();
     renderAdminDocxStructureSummary();
+}
+
+function renderAutopilotStatusPanel(reports) {
+    const panel = document.getElementById('autopilot-status-panel');
+    const pill = document.getElementById('autopilot-status-pill');
+    const detail = document.getElementById('autopilot-status-detail');
+    if (!panel || !pill || !detail) {
+        return;
+    }
+
+    const autopilotAudit = reports && typeof reports === 'object' && reports.autopilot_audit && typeof reports.autopilot_audit === 'object'
+        ? reports.autopilot_audit
+        : null;
+    if (!autopilotAudit) {
+        panel.classList.add('hidden');
+        return;
+    }
+
+    panel.classList.remove('hidden');
+    pill.classList.remove('autopilot-healed', 'autopilot-processed');
+
+    const healed = Boolean(autopilotAudit.heal_executed);
+    const issueCount = Number(autopilotAudit.reference_issue_count || 0);
+    const threshold = Number(autopilotAudit.heal_threshold_reference_issues || 0);
+    if (healed) {
+        pill.textContent = 'Healed';
+        pill.classList.add('autopilot-healed');
+    } else {
+        pill.textContent = 'Processed';
+        pill.classList.add('autopilot-processed');
+    }
+    detail.textContent = `Refs flagged: ${issueCount} | Heal threshold: ${threshold}`;
 }
 
 function loadTaskIntoEditor(taskId) {

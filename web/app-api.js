@@ -133,6 +133,11 @@
             processStatus: function (taskId) {
                 return getJson('/api/tasks/' + encodeURIComponent(taskId) + '/process-status');
             },
+            autopilot: function (taskId, options) {
+                return postJson('/api/tasks/' + encodeURIComponent(taskId) + '/autopilot', {
+                    options: options || {}
+                });
+            },
             applyCorrectionGroupDecisions: function (taskId, payload) {
                 var input = payload || {};
                 return postJson('/api/tasks/' + encodeURIComponent(taskId) + '/apply-correction-group-decisions', {

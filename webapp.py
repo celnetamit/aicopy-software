@@ -9,6 +9,7 @@ import math
 import json
 import os
 import re
+import copy
 import tempfile
 import threading
 import time
@@ -1320,6 +1321,132 @@ def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict) 
     return process_payload
 
 
+def _count_reference_issues_from_payload(process_payload: Dict) -> int:
+    report = process_payload.get("citation_reference_report") if isinstance(process_payload, dict) else {}
+    if not isinstance(report, dict):
+        return 0
+
+    for key in ("issue_count", "issues_count", "unresolved_count", "total_issues"):
+        try:
+            value = int(report.get(key, 0) or 0)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+
+    issues = report.get("issues")
+    if isinstance(issues, list):
+        return len(issues)
+    return 0
+
+
+def _persist_autopilot_audit(
+    *,
+    context: SessionContext,
+    task_id: str,
+    process_payload: Dict,
+    autopilot_audit: Dict,
+) -> None:
+    if not task_id:
+        return
+    task_row = _STORE.get_task_for_user(
+        task_id=task_id,
+        user_id=context.user_id,
+        is_admin=context.role == ROLE_ADMIN,
+    )
+    if not isinstance(task_row, dict):
+        return
+
+    reports = _extract_reports_from_process_payload(process_payload)
+    reports["autopilot_audit"] = autopilot_audit
+
+    corrected_text = str(task_row.get("corrected_text") or process_payload.get("text") or "")
+    full_corrected_text = str(task_row.get("full_corrected_text") or process_payload.get("full_corrected_text") or corrected_text)
+    options = task_row.get("options") if isinstance(task_row.get("options"), dict) else {}
+    word_count = int(task_row.get("word_count") or process_payload.get("word_count") or len(corrected_text.split()))
+
+    _STORE.update_task_processing_result(
+        task_id=task_id,
+        user_id=context.user_id,
+        corrected_text=corrected_text,
+        full_corrected_text=full_corrected_text,
+        word_count=word_count,
+        options=options,
+        reports=reports,
+    )
+
+
+def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+    """Run an autonomous processing pipeline with policy-based gates."""
+    effective_options = copy.deepcopy(options) if isinstance(options, dict) else {}
+    automation = effective_options.get("automation") if isinstance(effective_options.get("automation"), dict) else {}
+
+    process_options = copy.deepcopy(effective_options)
+    process_options.pop("automation", None)
+    process_options.setdefault("spelling", True)
+    process_options.setdefault("sentence_case", True)
+    process_options.setdefault("punctuation", True)
+    process_options.setdefault("chicago_style", True)
+    process_options.setdefault("editing_mode", "copyedit")
+    process_options.setdefault("rewrite_strength", "minimal")
+    process_options.setdefault("tone", "neutral")
+    process_options.setdefault("online_reference_validation", True)
+
+    auto_heal_enabled = bool(automation.get("auto_heal_bibliography", True))
+    try:
+        heal_threshold = int(automation.get("heal_when_reference_issues_at_least", 1) or 1)
+    except Exception:
+        heal_threshold = 1
+    heal_threshold = max(0, heal_threshold)
+
+    process_payload = _process_task(context, task, process_options)
+    issue_count = _count_reference_issues_from_payload(process_payload)
+    should_heal = bool(auto_heal_enabled and issue_count >= heal_threshold)
+
+    healed_payload = None
+    if should_heal:
+        latest_task = _STORE.get_task_for_user(
+            task_id=str(task.get("id") or ""),
+            user_id=context.user_id,
+            is_admin=context.role == ROLE_ADMIN,
+        ) or task
+        heal_options = copy.deepcopy(process_options)
+        heal_options["online_reference_validation"] = True
+        healed_payload = _heal_bibliography_task(context, latest_task, heal_options)
+
+    autopilot_audit = {
+        "status": "completed",
+        "timestamp": int(time.time()),
+        "process_executed": True,
+        "auto_heal_bibliography": auto_heal_enabled,
+        "heal_threshold_reference_issues": heal_threshold,
+        "reference_issue_count": issue_count,
+        "heal_executed": bool(healed_payload is not None),
+        "effective_options": {
+            "editing_mode": str(process_options.get("editing_mode") or "copyedit"),
+            "rewrite_strength": str(process_options.get("rewrite_strength") or "minimal"),
+            "tone": str(process_options.get("tone") or "neutral"),
+            "chicago_style": bool(process_options.get("chicago_style", True)),
+            "online_reference_validation": bool(process_options.get("online_reference_validation", True)),
+        },
+    }
+    final_payload = healed_payload if isinstance(healed_payload, dict) else process_payload
+    _persist_autopilot_audit(
+        context=context,
+        task_id=str(task.get("id") or ""),
+        process_payload=final_payload,
+        autopilot_audit=autopilot_audit,
+    )
+
+    return {
+        "success": True,
+        "task_id": str(task.get("id") or ""),
+        "status": "AUTOPILOT_COMPLETED",
+        "autopilot": autopilot_audit,
+        "result": final_payload,
+    }
+
+
 def _append_reference_unresolved_trend_sample(task: Dict, process_payload: Dict) -> None:
     """Store lightweight unresolved-reference trend sample for admin diagnostics."""
     report = process_payload.get("citation_reference_report", {}) if isinstance(process_payload, dict) else {}
@@ -2030,6 +2157,7 @@ def _build_route_dependencies():
         processing_job_queue=_PROCESSING_JOB_QUEUE,
         process_task=_process_task,
         heal_bibliography_task=_heal_bibliography_task,
+        autopilot_task=_autopilot_task,
         public_user_payload=_public_user_payload,
         read_global_runtime_settings=_read_global_runtime_settings,
         read_json_payload=_read_json_payload,

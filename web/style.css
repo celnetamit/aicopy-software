@@ -2079,6 +2079,51 @@ section h2 {
     color: #4ecca3;
 }
 
+.autopilot-status-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(78, 204, 163, 0.25);
+    background: rgba(78, 204, 163, 0.08);
+    color: #d6f7ec;
+    font-size: 11px;
+}
+
+.autopilot-status-title {
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #9adfca;
+}
+
+.autopilot-status-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 700;
+    border: 1px solid rgba(154, 223, 202, 0.4);
+    background: rgba(154, 223, 202, 0.12);
+    color: #dffff4;
+}
+
+.autopilot-status-pill.autopilot-healed {
+    border-color: rgba(47, 191, 113, 0.5);
+    background: rgba(47, 191, 113, 0.2);
+    color: #d8ffe8;
+}
+
+.autopilot-status-pill.autopilot-processed {
+    border-color: rgba(121, 163, 255, 0.5);
+    background: rgba(121, 163, 255, 0.18);
+    color: #e2ecff;
+}
+
+.autopilot-status-detail {
+    color: #c9d6d1;
+    opacity: 0.95;
+}
+
 .processing-presence {
     display: flex;
     flex-direction: column;
@@ -3549,4 +3594,3 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
         gap: 8px;
     }
 }
-

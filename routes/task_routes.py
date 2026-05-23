@@ -1,11 +1,35 @@
 """Task upload, processing, retrieval, and download routes."""
 
 import base64
+import time
 
 from bottle import HTTPResponse, request
 
 
 def register_task_routes(app, deps):
+    def _is_transient_autopilot_error(exc: Exception) -> bool:
+        text = str(exc or "").strip().lower()
+        if not text:
+            return False
+        transient_markers = (
+            "timeout",
+            "timed out",
+            "connection reset",
+            "connection aborted",
+            "temporary failure",
+            "temporarily unavailable",
+            "service unavailable",
+            "bad gateway",
+            "gateway timeout",
+            "too many requests",
+            "rate limit",
+            "429",
+            "502",
+            "503",
+            "504",
+        )
+        return any(marker in text for marker in transient_markers)
+
     @app.post("/api/tasks/upload-text")
     @deps.require_auth
     def api_tasks_upload_text():
@@ -524,3 +548,135 @@ def register_task_routes(app, deps):
             session_id=context.session_id,
         )
 
+    @app.post("/api/tasks/<task_id>/autopilot")
+    @deps.require_auth
+    def api_tasks_autopilot(task_id: str):
+        """Autonomous pipeline: process task and optionally heal bibliography based on policy gates."""
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        options = payload.get("options", {})
+        if not isinstance(options, dict):
+            options = {}
+        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+
+        task, error = deps.get_owned_task_or_error(context, task_id)
+        if error is not None:
+            return error
+
+        deps.increment_runtime_counter(context.session_id, "autopilot_requests")
+        deps.store.update_task_status(
+            task_id=task_id,
+            status="PROCESSING",
+            user_id=context.user_id,
+            is_admin=context.role == deps.role_admin,
+        )
+        task_run = deps.store.create_task_run(
+            task_id=task_id,
+            user_id=str(task.get("user_id") or context.user_id),
+            status="PENDING",
+            options=options,
+        )
+        task_run_id = str(task_run.get("id") or "")
+        deps.record_audit(
+            event_type="task_autopilot_queued",
+            actor_user_id=context.user_id,
+            entity_type="task",
+            entity_id=task_id,
+            metadata={"task_run_id": task_run_id},
+        )
+
+        def run_autopilot_job():
+            deps.store.update_task_run(
+                run_id=task_run_id,
+                user_id=str(task.get("user_id") or context.user_id),
+                is_admin=context.role == deps.role_admin,
+                status="RUNNING",
+            )
+            max_attempts = 2
+            attempt = 0
+            last_error = None
+            while attempt < max_attempts:
+                attempt += 1
+                try:
+                    result = deps.autopilot_task(context, task, options)
+                    deps.store.update_task_run(
+                        run_id=task_run_id,
+                        user_id=str(task.get("user_id") or context.user_id),
+                        is_admin=context.role == deps.role_admin,
+                        status="SUCCEEDED",
+                        result=result,
+                    )
+                    deps.increment_runtime_counter(context.session_id, "autopilot_succeeded")
+                    deps.record_audit(
+                        event_type="task_autopilot_succeeded",
+                        actor_user_id=context.user_id,
+                        entity_type="task_run",
+                        entity_id=task_run_id,
+                        metadata={"task_id": task_id, "attempt": attempt, "retried": attempt > 1},
+                    )
+                    return result
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < max_attempts and _is_transient_autopilot_error(exc):
+                        deps.increment_runtime_counter(context.session_id, "autopilot_retries")
+                        deps.record_audit(
+                            event_type="task_autopilot_retrying",
+                            actor_user_id=context.user_id,
+                            entity_type="task_run",
+                            entity_id=task_run_id,
+                            metadata={"task_id": task_id, "attempt": attempt, "error": str(exc)},
+                        )
+                        time.sleep(1)
+                        continue
+                    break
+
+            deps.store.update_task_status(
+                task_id=task_id,
+                status="FAILED",
+                user_id=context.user_id,
+                is_admin=context.role == deps.role_admin,
+            )
+            deps.store.update_task_run(
+                run_id=task_run_id,
+                user_id=str(task.get("user_id") or context.user_id),
+                is_admin=context.role == deps.role_admin,
+                status="FAILED",
+                error=str(last_error),
+            )
+            deps.increment_runtime_counter(context.session_id, "autopilot_failed")
+            deps.record_audit(
+                event_type="task_autopilot_failed",
+                actor_user_id=context.user_id,
+                entity_type="task_run",
+                entity_id=task_run_id,
+                metadata={"task_id": task_id, "error": str(last_error), "attempts": attempt},
+            )
+            raise last_error
+
+        job = deps.processing_job_queue.submit(
+            task_id=task_id,
+            owner_user_id=str(task.get("user_id") or context.user_id),
+            callback=run_autopilot_job,
+        )
+        deps.store.update_task_run(
+            run_id=task_run_id,
+            user_id=str(task.get("user_id") or context.user_id),
+            is_admin=context.role == deps.role_admin,
+            job_id=str(job.get("id") or ""),
+        )
+
+        return deps.json_response(
+            {
+                "success": True,
+                "queued": True,
+                "task_id": task_id,
+                "job": job,
+                "task_run": deps.store.get_task_run_for_user(
+                    run_id=task_run_id,
+                    user_id=context.user_id,
+                    is_admin=context.role == deps.role_admin,
+                ),
+            },
+            status=202,
+            session_id=context.session_id,
+        )
