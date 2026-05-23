@@ -570,15 +570,25 @@ class AppStore:
             )
         return self._normalize_task_row(row)
 
-    def list_tasks_for_user(self, *, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_tasks_for_user(self, *, user_id: str, limit: int = 100, status: str = "") -> List[Dict[str, Any]]:
         safe_limit = max(1, min(250, int(limit or 100)))
-        rows = self._query_all(
-            "SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
-            if self.backend == "sqlite"
-            else
-            "SELECT * FROM tasks WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
-            (user_id, safe_limit),
-        )
+        normalized_status = str(status or "").strip().upper()
+        if normalized_status:
+            rows = self._query_all(
+                "SELECT * FROM tasks WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM tasks WHERE user_id = %s AND status = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, normalized_status, safe_limit),
+            )
+        else:
+            rows = self._query_all(
+                "SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM tasks WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, safe_limit),
+            )
         return [self._normalize_task_row(row) for row in rows if row]
 
     def update_task_status(self, *, task_id: str, status: str, user_id: str, is_admin: bool = False):

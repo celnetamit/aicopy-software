@@ -61,12 +61,16 @@
         }
 
         let html = '';
+        let reviewRequiredCount = 0;
         state.taskHistory.forEach((task) => {
             const taskId = String(task.id || '');
             const currentTaskId = state.fileContent ? String(state.fileContent.taskId || '') : '';
             const activeClass = taskId && taskId === currentTaskId ? ' active' : '';
             const status = helpers.escapeHtml(String(task.status || 'UPLOADED'));
             const rawStatus = String(task.status || '').trim().toUpperCase();
+            if (rawStatus === 'REVIEW_REQUIRED') {
+                reviewRequiredCount += 1;
+            }
             const words = Number(task.word_count || 0);
             const sourceType = String(task.source_type || 'text').toUpperCase();
             const createdAt = Number(task.created_at || 0);
@@ -80,11 +84,17 @@
             }
             html += `<div class="task-history-item${activeClass}" data-task-id="${helpers.escapeHtml(taskId)}">`;
             html += `<div class="task-history-title">${helpers.escapeHtml(String(task.file_name || 'Untitled manuscript'))}</div>`;
-            html += `<div class="task-history-badges"><span class="task-history-badge">${helpers.escapeHtml(sourceType)}</span><span class="task-history-badge task-history-badge-status">${status}</span></div>`;
+            const statusClass = rawStatus === 'REVIEW_REQUIRED'
+                ? ' task-history-badge-status-review-required'
+                : '';
+            html += `<div class="task-history-badges"><span class="task-history-badge">${helpers.escapeHtml(sourceType)}</span><span class="task-history-badge task-history-badge-status${statusClass}">${status}</span></div>`;
             html += `<div class="task-history-meta">${status} &bull; ${words} words &bull; ${helpers.escapeHtml(helpers.formatUnixTimestamp(task.updated_at))}${durationLabel ? ` &bull; ${helpers.escapeHtml(durationLabel)}` : ''}</div>`;
             html += '</div>';
         });
         taskHistoryEl.innerHTML = html;
+        if (dom.reviewRequiredCount) {
+            dom.reviewRequiredCount.textContent = `Needs Review: ${reviewRequiredCount}`;
+        }
         bindTaskHistoryNavigation();
     }
 

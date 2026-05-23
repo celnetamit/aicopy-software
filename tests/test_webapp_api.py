@@ -962,7 +962,17 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         status, payload = self.client.request(
             "POST",
             f"/api/tasks/{task_id}/autopilot",
-            {"options": {"ai": {"enabled": False}}},
+            {
+                "options": {
+                    "ai": {"enabled": False},
+                    "automation": {
+                        "min_overall_confidence_for_autocomplete": 1.01,
+                        "min_reference_confidence_for_autoheal": 0.0,
+                        "auto_heal_bibliography": True,
+                        "heal_when_reference_issues_at_least": 0,
+                    },
+                }
+            },
         )
         self.assertEqual(status, 202)
         self.assertTrue(payload.get("success"))
@@ -993,6 +1003,105 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("success"))
         telemetry = payload.get("telemetry") or {}
         self.assertGreaterEqual(int(telemetry.get("autopilot_retries", 0)), 1)
+
+    def test_autopilot_low_confidence_routes_task_to_review_required_and_status_filter_works(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/global-settings",
+            {
+                "settings": {
+                    "editing": {
+                        "autopilot_auto_heal_bibliography": True,
+                        "autopilot_heal_when_reference_issues_at_least": 0,
+                        "autopilot_min_overall_confidence_for_autocomplete": 1.0,
+                        "autopilot_min_reference_confidence_for_autoheal": 0.0,
+                    },
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {
+                "file_name": "review-gate.txt",
+                "content": (
+                    "Introduction cites [1].\n"
+                    "References\n"
+                    "[1] Unknown Author. Missing metadata reference.\n"
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        confidence_patcher = patch(
+            "webapp._compute_autopilot_confidence",
+            return_value={
+                "language_confidence": 0.82,
+                "reference_confidence": 0.83,
+                "citation_integrity_confidence": 0.81,
+                "overall_autopilot_confidence": 0.82,
+                "reference_issue_count": 2,
+                "citation_issue_count": 1,
+            },
+        )
+        confidence_patcher.start()
+        try:
+            status, payload = self.client.request(
+                "POST",
+                f"/api/tasks/{task_id}/autopilot",
+                {
+                    "options": {
+                        "ai": {"enabled": False},
+                        "automation": {
+                            "min_overall_confidence_for_autocomplete": 0.95,
+                            "min_reference_confidence_for_autoheal": 0.0,
+                            "auto_heal_bibliography": True,
+                            "heal_when_reference_issues_at_least": 0,
+                        },
+                    }
+                },
+            )
+            self.assertEqual(status, 202)
+            self.assertTrue(payload.get("success"))
+
+            final_status = ""
+            for _ in range(120):
+                status, status_payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+                self.assertEqual(status, 200)
+                final_status = str(status_payload.get("status") or "")
+                if final_status in {"REVIEW_REQUIRED", "FAILED"}:
+                    break
+                time.sleep(0.05)
+        finally:
+            confidence_patcher.stop()
+
+        self.assertEqual(final_status, "REVIEW_REQUIRED")
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        reports = (payload.get("task") or {}).get("reports") or {}
+        autopilot_audit = reports.get("autopilot_audit") if isinstance(reports, dict) else {}
+        self.assertTrue(bool(autopilot_audit.get("review_required")))
+        self.assertIsInstance(autopilot_audit.get("decision_reasons"), list)
+        self.assertTrue(len(autopilot_audit.get("decision_reasons") or []) > 0)
+
+        status, payload = self.client.request("GET", "/api/tasks", query={"status": "REVIEW_REQUIRED"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        tasks = payload.get("tasks") or []
+        self.assertTrue(any(str(task.get("id") or "") == task_id for task in tasks))
 
     def test_runtime_telemetry_captures_processing_mode_and_editing_controls(self):
         admin_client = WsgiTestClient(webapp.app)
@@ -1536,6 +1645,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "auto_resolve_unresolved_references": False,
                 "autopilot_auto_heal_bibliography": False,
                 "autopilot_heal_when_reference_issues_at_least": 7,
+                "autopilot_min_overall_confidence_for_autocomplete": 0.78,
+                "autopilot_min_reference_confidence_for_autoheal": 0.55,
                 "domain_profile": "medical",
                 "editing_mode": "tone_adjust",
                 "tone": "formal",
@@ -1578,6 +1689,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(payload.get("settings", {}).get("editing", {}).get("auto_resolve_unresolved_references"))
         self.assertFalse(payload.get("settings", {}).get("editing", {}).get("autopilot_auto_heal_bibliography"))
         self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("autopilot_heal_when_reference_issues_at_least", 0)), 7)
+        self.assertAlmostEqual(float(payload.get("settings", {}).get("editing", {}).get("autopilot_min_overall_confidence_for_autocomplete", 0)), 0.78, places=2)
+        self.assertAlmostEqual(float(payload.get("settings", {}).get("editing", {}).get("autopilot_min_reference_confidence_for_autoheal", 0)), 0.55, places=2)
         admin_ai = payload.get("settings", {}).get("ai", {})
         self.assertEqual(float(admin_ai.get("ollama_generate_timeout_seconds", 0)), 35)
         self.assertEqual(float(admin_ai.get("ollama_health_timeout_seconds", 0)), 4)
@@ -1603,6 +1716,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(user_settings.get("editing", {}).get("auto_resolve_unresolved_references"))
         self.assertFalse(user_settings.get("editing", {}).get("autopilot_auto_heal_bibliography"))
         self.assertEqual(int(user_settings.get("editing", {}).get("autopilot_heal_when_reference_issues_at_least", 0)), 7)
+        self.assertAlmostEqual(float(user_settings.get("editing", {}).get("autopilot_min_overall_confidence_for_autocomplete", 0)), 0.78, places=2)
+        self.assertAlmostEqual(float(user_settings.get("editing", {}).get("autopilot_min_reference_confidence_for_autoheal", 0)), 0.55, places=2)
         user_ai = user_settings.get("ai", {})
         self.assertEqual(float(user_ai.get("ollama_generate_timeout_seconds", 0)), 35)
         self.assertEqual(float(user_ai.get("ollama_health_timeout_seconds", 0)), 4)
@@ -1688,6 +1803,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(bool(diagnostics.get("serper", {}).get("configured")))
         self.assertIn("autopilot_auto_heal_bibliography", diagnostics.get("global_runtime", {}))
         self.assertIn("autopilot_heal_when_reference_issues_at_least", diagnostics.get("global_runtime", {}))
+        self.assertIn("autopilot_min_overall_confidence_for_autocomplete", diagnostics.get("global_runtime", {}))
+        self.assertIn("autopilot_min_reference_confidence_for_autoheal", diagnostics.get("global_runtime", {}))
         serialized = json.dumps(payload)
         self.assertNotIn("serper-secret-test-key", serialized)
 

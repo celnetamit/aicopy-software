@@ -215,6 +215,11 @@ body.tasks-dashboard-route .right-panel {
     color: #a8bddf;
 }
 
+.review-required-count {
+    color: #ffd58d;
+    font-weight: 700;
+}
+
 .dashboard-summary-value {
     font-size: 18px;
     line-height: 1.4;
@@ -956,6 +961,12 @@ section h2 {
     color: #d3ffe7;
     background: rgba(121, 223, 169, 0.12);
     border-color: rgba(121, 223, 169, 0.22);
+}
+
+.task-history-badge-status-review-required {
+    color: #ffe7b8;
+    background: rgba(255, 193, 7, 0.18);
+    border-color: rgba(255, 193, 7, 0.36);
 }
 
 .task-history-meta {

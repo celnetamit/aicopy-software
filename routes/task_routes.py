@@ -84,7 +84,8 @@ def register_task_routes(app, deps):
         except Exception:
             limit = 100
         limit = max(1, min(int(deps.task_list_limit_max), limit))
-        tasks = deps.store.list_tasks_for_user(user_id=context.user_id, limit=limit)
+        status_filter = str(request.query.get("status", "") or "").strip().upper()
+        tasks = deps.store.list_tasks_for_user(user_id=context.user_id, limit=limit, status=status_filter)
         return deps.json_response(
             {
                 "success": True,

@@ -507,6 +507,32 @@
                                 placeholder="Min reference issues before auto-heal"
                             />
                         </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-min-overall-confidence">Autopilot Min Overall Confidence</label>
+                            <input
+                                id="admin-setting-autopilot-min-overall-confidence"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value="0.72"
+                                placeholder="0.00 - 1.00"
+                            />
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-min-reference-confidence">Autopilot Min Reference Confidence</label>
+                            <input
+                                id="admin-setting-autopilot-min-reference-confidence"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value="0.62"
+                                placeholder="0.00 - 1.00"
+                            />
+                        </div>
 
                         <div class="admin-settings-row">
                             <label class="field-label admin-row-label" for="admin-setting-domain-profile">Domain Profile</label>

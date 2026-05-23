@@ -104,8 +104,8 @@
         },
 
         tasks: {
-            list: function (limit) {
-                return getJson('/api/tasks' + buildQuery({ limit: limit }));
+            list: function (limit, status) {
+                return getJson('/api/tasks' + buildQuery({ limit: limit, status: status }));
             },
             get: function (taskId) {
                 return getJson('/api/tasks/' + encodeURIComponent(taskId));

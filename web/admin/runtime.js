@@ -90,6 +90,12 @@ function buildProcessingOptionsFromRuntimeSettings() {
         explain_edits: false,
         cmos_profile: 'core',
         custom_terms: [],
+        automation: {
+            auto_heal_bibliography: true,
+            heal_when_reference_issues_at_least: 1,
+            min_overall_confidence_for_autocomplete: 0.72,
+            min_reference_confidence_for_autoheal: 0.62
+        },
         journal_profile: adminRuntimeConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: adminRuntimeConstants.FIXED_JOURNAL_PROFILE,
         ai: {
@@ -145,6 +151,12 @@ function buildProcessingOptionsFromRuntimeSettings() {
             ? String(editing.cmos_profile || 'core')
             : 'core',
         custom_terms: Array.isArray(editing.custom_terms) ? editing.custom_terms : [],
+        automation: {
+            auto_heal_bibliography: editing.autopilot_auto_heal_bibliography !== false,
+            heal_when_reference_issues_at_least: Number(editing.autopilot_heal_when_reference_issues_at_least ?? 1),
+            min_overall_confidence_for_autocomplete: Number(editing.autopilot_min_overall_confidence_for_autocomplete ?? 0.72),
+            min_reference_confidence_for_autoheal: Number(editing.autopilot_min_reference_confidence_for_autoheal ?? 0.62)
+        },
         journal_profile: adminRuntimeConstants.FIXED_JOURNAL_PROFILE,
         reference_profile: adminRuntimeConstants.FIXED_JOURNAL_PROFILE,
         ai: {

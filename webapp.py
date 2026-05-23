@@ -458,6 +458,8 @@ def _default_global_runtime_settings() -> Dict:
             "auto_resolve_unresolved_references": True,
             "autopilot_auto_heal_bibliography": True,
             "autopilot_heal_when_reference_issues_at_least": 1,
+            "autopilot_min_overall_confidence_for_autocomplete": 0.72,
+            "autopilot_min_reference_confidence_for_autoheal": 0.62,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "cmos_profile": "strict",
@@ -601,6 +603,20 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 0,
                 200,
             ),
+            "autopilot_min_overall_confidence_for_autocomplete": _float(
+                editing_in,
+                "autopilot_min_overall_confidence_for_autocomplete",
+                defaults["editing"]["autopilot_min_overall_confidence_for_autocomplete"],
+                0.0,
+                1.0,
+            ),
+            "autopilot_min_reference_confidence_for_autoheal": _float(
+                editing_in,
+                "autopilot_min_reference_confidence_for_autoheal",
+                defaults["editing"]["autopilot_min_reference_confidence_for_autoheal"],
+                0.0,
+                1.0,
+            ),
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "cmos_profile": cmos_profile,
@@ -695,6 +711,8 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["automation"] = {
         "auto_heal_bibliography": bool(editing.get("autopilot_auto_heal_bibliography", True)),
         "heal_when_reference_issues_at_least": int(editing.get("autopilot_heal_when_reference_issues_at_least", 1)),
+        "min_overall_confidence_for_autocomplete": float(editing.get("autopilot_min_overall_confidence_for_autocomplete", 0.72)),
+        "min_reference_confidence_for_autoheal": float(editing.get("autopilot_min_reference_confidence_for_autoheal", 0.62)),
     }
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
@@ -1070,17 +1088,19 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
 
 
 def _task_summary(task_row: Dict) -> Dict:
+    status = str(task_row.get("status") or "")
+    downloadable = status in {"PROCESSED", "REVIEW_REQUIRED"}
     return {
         "id": str(task_row.get("id") or ""),
         "file_name": str(task_row.get("file_name") or ""),
-        "status": str(task_row.get("status") or ""),
+        "status": status,
         "word_count": int(task_row.get("word_count") or 0),
         "source_type": str(task_row.get("source_type") or "text"),
         "created_at": int(task_row.get("created_at") or 0),
         "updated_at": int(task_row.get("updated_at") or 0),
         "processed_at": int(task_row.get("processed_at") or 0),
-        "can_download_clean": str(task_row.get("status") or "") == "PROCESSED",
-        "can_download_highlighted": str(task_row.get("status") or "") == "PROCESSED",
+        "can_download_clean": downloadable,
+        "can_download_highlighted": downloadable,
     }
 
 
@@ -1358,6 +1378,63 @@ def _count_reference_issues_from_payload(process_payload: Dict) -> int:
     return 0
 
 
+def _count_citation_issues_from_payload(process_payload: Dict) -> int:
+    report = process_payload.get("citation_reference_report") if isinstance(process_payload, dict) else {}
+    if not isinstance(report, dict):
+        return 0
+    summary = report.get("summary") if isinstance(report.get("summary"), dict) else {}
+    for key in ("issue_total", "citation_issues", "total_issues"):
+        try:
+            value = int(summary.get(key, 0) or 0)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    for key in ("issue_total", "issues_count"):
+        try:
+            value = int(report.get(key, 0) or 0)
+            if value > 0:
+                return value
+        except Exception:
+            continue
+    return 0
+
+
+def _compute_autopilot_confidence(process_payload: Dict) -> Dict:
+    processing_audit = process_payload.get("processing_audit") if isinstance(process_payload, dict) else {}
+    summary = processing_audit.get("summary") if isinstance(processing_audit, dict) and isinstance(processing_audit.get("summary"), dict) else {}
+    note = str(process_payload.get("processing_note") or "").lower()
+
+    total_sections = max(1, int(summary.get("total_sections", 1) or 1))
+    fallback_sections = max(0, int(summary.get("fallback_sections", 0) or 0))
+    fallback_ratio = min(1.0, float(fallback_sections) / float(total_sections))
+    language_confidence = max(0.0, min(1.0, 1.0 - (fallback_ratio * 0.65)))
+    if "fallback" in note:
+        language_confidence = max(0.0, language_confidence - 0.08)
+
+    reference_issues = max(0, _count_reference_issues_from_payload(process_payload))
+    citation_issues = max(0, _count_citation_issues_from_payload(process_payload))
+
+    reference_confidence = max(0.0, min(1.0, 1.0 - (min(reference_issues, 12) / 12.0)))
+    citation_integrity_confidence = max(0.0, min(1.0, 1.0 - (min(citation_issues, 12) / 12.0)))
+
+    overall = (
+        (language_confidence * 0.45)
+        + (reference_confidence * 0.30)
+        + (citation_integrity_confidence * 0.25)
+    )
+    overall = max(0.0, min(1.0, overall))
+
+    return {
+        "language_confidence": round(language_confidence, 4),
+        "reference_confidence": round(reference_confidence, 4),
+        "citation_integrity_confidence": round(citation_integrity_confidence, 4),
+        "overall_autopilot_confidence": round(overall, 4),
+        "reference_issue_count": reference_issues,
+        "citation_issue_count": citation_issues,
+    }
+
+
 def _persist_autopilot_audit(
     *,
     context: SessionContext,
@@ -1416,10 +1493,34 @@ def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     except Exception:
         heal_threshold = 1
     heal_threshold = max(0, heal_threshold)
+    try:
+        min_overall_confidence = float(automation.get("min_overall_confidence_for_autocomplete", 0.72) or 0.72)
+    except Exception:
+        min_overall_confidence = 0.72
+    try:
+        min_reference_confidence_for_autoheal = float(automation.get("min_reference_confidence_for_autoheal", 0.62) or 0.62)
+    except Exception:
+        min_reference_confidence_for_autoheal = 0.62
+    min_overall_confidence = max(0.0, min(1.0, min_overall_confidence))
+    min_reference_confidence_for_autoheal = max(0.0, min(1.0, min_reference_confidence_for_autoheal))
 
     process_payload = _process_task(context, task, process_options)
+    process_confidence = _compute_autopilot_confidence(process_payload)
     issue_count = _count_reference_issues_from_payload(process_payload)
-    should_heal = bool(auto_heal_enabled and issue_count >= heal_threshold)
+    should_heal = bool(
+        auto_heal_enabled
+        and issue_count >= heal_threshold
+        and float(process_confidence.get("reference_confidence", 0.0)) >= min_reference_confidence_for_autoheal
+    )
+    decision_reasons: List[str] = []
+    if not auto_heal_enabled:
+        decision_reasons.append("auto_heal_disabled_by_policy")
+    elif issue_count < heal_threshold:
+        decision_reasons.append("reference_issues_below_heal_threshold")
+    elif float(process_confidence.get("reference_confidence", 0.0)) < min_reference_confidence_for_autoheal:
+        decision_reasons.append("reference_confidence_below_autoheal_threshold")
+    else:
+        decision_reasons.append("healing_gate_passed")
 
     healed_payload = None
     if should_heal:
@@ -1432,14 +1533,28 @@ def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         heal_options["online_reference_validation"] = True
         healed_payload = _heal_bibliography_task(context, latest_task, heal_options)
 
+    final_payload = healed_payload if isinstance(healed_payload, dict) else process_payload
+    final_confidence = _compute_autopilot_confidence(final_payload)
+    requires_review = float(final_confidence.get("overall_autopilot_confidence", 0.0)) < min_overall_confidence
+    if requires_review:
+        decision_reasons.append("overall_confidence_below_autocomplete_threshold")
+    else:
+        decision_reasons.append("overall_confidence_meets_autocomplete_threshold")
+
     autopilot_audit = {
         "status": "completed",
         "timestamp": int(time.time()),
         "process_executed": True,
         "auto_heal_bibliography": auto_heal_enabled,
         "heal_threshold_reference_issues": heal_threshold,
-        "reference_issue_count": issue_count,
+        "min_overall_confidence_for_autocomplete": round(min_overall_confidence, 4),
+        "min_reference_confidence_for_autoheal": round(min_reference_confidence_for_autoheal, 4),
+        "reference_issue_count": int(final_confidence.get("reference_issue_count", issue_count)),
+        "citation_issue_count": int(final_confidence.get("citation_issue_count", 0)),
         "heal_executed": bool(healed_payload is not None),
+        "review_required": requires_review,
+        "decision_reasons": decision_reasons,
+        "confidence": final_confidence,
         "effective_options": {
             "editing_mode": str(process_options.get("editing_mode") or "copyedit"),
             "rewrite_strength": str(process_options.get("rewrite_strength") or "minimal"),
@@ -1448,18 +1563,24 @@ def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
             "online_reference_validation": bool(process_options.get("online_reference_validation", True)),
         },
     }
-    final_payload = healed_payload if isinstance(healed_payload, dict) else process_payload
     _persist_autopilot_audit(
         context=context,
         task_id=str(task.get("id") or ""),
         process_payload=final_payload,
         autopilot_audit=autopilot_audit,
     )
+    if requires_review:
+        _STORE.update_task_status(
+            task_id=str(task.get("id") or ""),
+            status="REVIEW_REQUIRED",
+            user_id=context.user_id,
+            is_admin=context.role == ROLE_ADMIN,
+        )
 
     return {
         "success": True,
         "task_id": str(task.get("id") or ""),
-        "status": "AUTOPILOT_COMPLETED",
+        "status": "AUTOPILOT_REVIEW_REQUIRED" if requires_review else "AUTOPILOT_COMPLETED",
         "autopilot": autopilot_audit,
         "result": final_payload,
     }
@@ -1586,7 +1707,7 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
     if file_row is None:
         # Try to regenerate from stored processed content if available.
         task = _STORE.get_task_for_user(task_id=task_id, user_id=context.user_id, is_admin=context.role == ROLE_ADMIN)
-        if task and str(task.get("status") or "") == "PROCESSED":
+        if task and str(task.get("status") or "") in {"PROCESSED", "REVIEW_REQUIRED"}:
             corrected = str(task.get("corrected_text") or "")
             original = str(task.get("original_text") or "")
             if corrected.strip() and original.strip():
@@ -2065,6 +2186,8 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
             "auto_resolve_unresolved_references": bool(editing.get("auto_resolve_unresolved_references", True)),
             "autopilot_auto_heal_bibliography": bool(editing.get("autopilot_auto_heal_bibliography", True)),
             "autopilot_heal_when_reference_issues_at_least": int(editing.get("autopilot_heal_when_reference_issues_at_least", 1) or 1),
+            "autopilot_min_overall_confidence_for_autocomplete": float(editing.get("autopilot_min_overall_confidence_for_autocomplete", 0.72) or 0.72),
+            "autopilot_min_reference_confidence_for_autoheal": float(editing.get("autopilot_min_reference_confidence_for_autoheal", 0.62) or 0.62),
         },
         "serper": {
             "configured": serper_configured,

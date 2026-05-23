@@ -302,7 +302,8 @@ function applyTaskDetailsToState(task) {
         }
     }
 
-    const processed = String(task.status || '').toUpperCase() === 'PROCESSED';
+    const currentStatus = String(task.status || '').toUpperCase();
+    const processed = currentStatus === 'PROCESSED' || currentStatus === 'REVIEW_REQUIRED';
     if (processingModeEl) {
         const taskOptions = task.options && typeof task.options === 'object' ? task.options : {};
         const aiOptions = taskOptions.ai && typeof taskOptions.ai === 'object' ? taskOptions.ai : {};
@@ -348,9 +349,13 @@ function renderAutopilotStatusPanel(reports) {
     pill.classList.remove('autopilot-healed', 'autopilot-processed');
 
     const healed = Boolean(autopilotAudit.heal_executed);
+    const reviewRequired = Boolean(autopilotAudit.review_required);
     const issueCount = Number(autopilotAudit.reference_issue_count || 0);
     const threshold = Number(autopilotAudit.heal_threshold_reference_issues || 0);
-    if (healed) {
+    if (reviewRequired) {
+        pill.textContent = 'Needs Review';
+        pill.classList.add('autopilot-processed');
+    } else if (healed) {
         pill.textContent = 'Healed';
         pill.classList.add('autopilot-healed');
     } else {

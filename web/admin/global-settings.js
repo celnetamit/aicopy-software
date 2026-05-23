@@ -234,6 +234,22 @@ function applyAdminGlobalSettingsForm(settings) {
             1
         );
     }
+    if (adminGlobalDom.adminSettingAutopilotMinOverallConfidence) {
+        adminGlobalDom.adminSettingAutopilotMinOverallConfidence.value = adminGlobalHelpers.clampNumber(
+            editing.autopilot_min_overall_confidence_for_autocomplete,
+            0,
+            1,
+            0.72
+        );
+    }
+    if (adminGlobalDom.adminSettingAutopilotMinReferenceConfidence) {
+        adminGlobalDom.adminSettingAutopilotMinReferenceConfidence.value = adminGlobalHelpers.clampNumber(
+            editing.autopilot_min_reference_confidence_for_autoheal,
+            0,
+            1,
+            0.62
+        );
+    }
     if (adminGlobalDom.adminSettingDomainProfile) adminGlobalDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (adminGlobalDom.adminSettingEditingMode) {
         const editingMode = String(editing.editing_mode || 'copyedit');
@@ -313,6 +329,18 @@ function collectAdminGlobalSettingsForm() {
                 0,
                 200,
                 1
+            ),
+            autopilot_min_overall_confidence_for_autocomplete: adminGlobalHelpers.clampNumber(
+                adminGlobalDom.adminSettingAutopilotMinOverallConfidence ? adminGlobalDom.adminSettingAutopilotMinOverallConfidence.value : 0.72,
+                0,
+                1,
+                0.72
+            ),
+            autopilot_min_reference_confidence_for_autoheal: adminGlobalHelpers.clampNumber(
+                adminGlobalDom.adminSettingAutopilotMinReferenceConfidence ? adminGlobalDom.adminSettingAutopilotMinReferenceConfidence.value : 0.62,
+                0,
+                1,
+                0.62
             ),
             domain_profile: adminGlobalDom.adminSettingDomainProfile ? String(adminGlobalDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             editing_mode: adminGlobalDom.adminSettingEditingMode ? String(adminGlobalDom.adminSettingEditingMode.value || 'copyedit') : 'copyedit',

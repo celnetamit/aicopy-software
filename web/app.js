@@ -613,7 +613,7 @@ function pollTaskUntilProcessed(taskId) {
             return;
         }
         const status = String(task.status || '').toUpperCase();
-        if (status === 'PROCESSED') {
+        if (status === 'PROCESSED' || status === 'REVIEW_REQUIRED') {
             clearServerTaskTracking();
             mainState.isProcessingDocument = false;
             mainAuth.applyTaskDetailsToState(task);
@@ -621,8 +621,13 @@ function pollTaskUntilProcessed(taskId) {
             if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
             if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
             stopProcessingPresence();
-            setStatus('Processing complete (recovered after transient server response issue)', 'success');
-            showAssistantToast('Processing completed in background.');
+            if (status === 'REVIEW_REQUIRED') {
+                setStatus('Autopilot completed: review required before acceptance', 'warning');
+                showAssistantToast('Autopilot completed with review-required gate.');
+            } else {
+                setStatus('Processing complete (recovered after transient server response issue)', 'success');
+                showAssistantToast('Processing completed in background.');
+            }
             setProgress(100);
             refreshProcessButtonState();
             return;
