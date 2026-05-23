@@ -7,7 +7,7 @@ import json
 import copy
 import threading
 from urllib.parse import quote
-from typing import List, Tuple, Dict, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any, Callable
 
 import requests
 
