@@ -771,7 +771,9 @@ function setGroupDecision(groupKey, accepted) {
     mainState.fileContent.groupDecisions = mainPreview.normalizeGroupDecisions(mainState.fileContent.groupDecisions);
     mainState.fileContent.groupDecisions[groupKey] = !!accepted;
     appMain.syncWindowFileContent();
-    if (mainState.currentTab === 'corrections') mainPreview.renderCurrentPreview();
+    if (mainState.currentTab === 'corrections' || mainState.currentViewMode === 'compare') {
+        mainPreview.renderCurrentPreview();
+    }
     applyCurrentGroupDecisions();
 }
 
@@ -782,7 +784,9 @@ function applyAllGroupDecisions(accepted) {
     });
     mainState.fileContent.groupDecisions = next;
     appMain.syncWindowFileContent();
-    if (mainState.currentTab === 'corrections') mainPreview.renderCurrentPreview();
+    if (mainState.currentTab === 'corrections' || mainState.currentViewMode === 'compare') {
+        mainPreview.renderCurrentPreview();
+    }
     applyCurrentGroupDecisions();
 }
 

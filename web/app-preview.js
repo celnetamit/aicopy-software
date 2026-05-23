@@ -1096,6 +1096,117 @@ function renderCorrectionsPanel(
     return html;
 }
 
+function findCorrectionGroup(element) {
+    const text = (element.textContent || '').trim().toLowerCase();
+    const report = previewState.fileContent.corrections;
+    if (!report || typeof report !== 'object' || !report.groups) {
+        return null;
+    }
+    
+    // Search groups for a matching item
+    for (const [groupKey, items] of Object.entries(report.groups)) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+            const itemOrig = (item.original || '').trim().toLowerCase();
+            const itemCorr = (item.corrected || '').trim().toLowerCase();
+            if ((itemOrig && text.includes(itemOrig)) || 
+                (itemCorr && text.includes(itemCorr)) || 
+                (text && itemOrig.includes(text)) || 
+                (text && itemCorr.includes(text))) {
+                return groupKey;
+            }
+        }
+    }
+    return null;
+}
+
+function initializeInteractiveSplitCanvas() {
+    const leftPane = document.getElementById('pane-left-content');
+    const rightPane = document.getElementById('pane-right-content');
+    if (!leftPane || !rightPane) return;
+
+    // Scroll Syncing Logic
+    let activeScrollSource = null;
+    function handleScroll(e) {
+        const source = e.currentTarget;
+        if (activeScrollSource && activeScrollSource !== source) return;
+        activeScrollSource = source;
+        const target = source === leftPane ? rightPane : leftPane;
+        
+        const percentage = source.scrollTop / (source.scrollHeight - source.clientHeight);
+        target.scrollTop = percentage * (target.scrollHeight - target.clientHeight);
+        
+        if (source.scrollTimeout) clearTimeout(source.scrollTimeout);
+        source.scrollTimeout = setTimeout(() => {
+            activeScrollSource = null;
+        }, 50);
+    }
+
+    leftPane.addEventListener('scroll', handleScroll, { passive: true });
+    rightPane.addEventListener('scroll', handleScroll, { passive: true });
+
+    // Interactive Hover and Click Controls on Redline elements
+    const redlineElements = rightPane.querySelectorAll('.redline-del, .redline-add');
+    
+    // Create tooltip element if not exists
+    let tooltip = document.getElementById('glassmorphic-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'glassmorphic-tooltip';
+        tooltip.className = 'glassmorphic-tooltip hidden';
+        document.body.appendChild(tooltip);
+    }
+
+    let hideTimeout = null;
+
+    redlineElements.forEach((el) => {
+        el.addEventListener('mouseenter', (e) => {
+            if (hideTimeout) clearTimeout(hideTimeout);
+            
+            const groupKey = findCorrectionGroup(el);
+            const groupLabel = groupKey 
+                ? (previewConstants.CORRECTION_GROUP_LABEL[groupKey] || groupKey)
+                : 'Prose Change';
+            
+            const changeType = el.classList.contains('redline-add') ? 'Addition' : 'Deletion';
+            const changeText = el.textContent || '';
+            
+            tooltip.innerHTML = `
+                <div class="tooltip-title">${groupLabel}</div>
+                <div class="tooltip-text">${changeType}: "${previewHelpers.escapeHtml(changeText.substring(0, 80))}"</div>
+                ${groupKey ? `
+                <div class="tooltip-buttons">
+                    <button class="tooltip-btn accept" onclick="setGroupDecision('${groupKey}', true)">Accept Group</button>
+                    <button class="tooltip-btn reject" onclick="setGroupDecision('${groupKey}', false)">Reject Group</button>
+                </div>
+                ` : ''}
+            `;
+            
+            // Position tooltip
+            const rect = el.getBoundingClientRect();
+            tooltip.style.left = `${rect.left + window.scrollX + (rect.width / 2) - 110}px`;
+            tooltip.style.top = `${rect.top + window.scrollY - tooltip.offsetHeight - 12}px`;
+            tooltip.classList.remove('hidden');
+        });
+
+        el.addEventListener('mouseleave', () => {
+            hideTimeout = setTimeout(() => {
+                tooltip.classList.add('hidden');
+            }, 300);
+        });
+    });
+
+    tooltip.addEventListener('mouseenter', () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+    });
+
+    tooltip.addEventListener('mouseleave', () => {
+        hideTimeout = setTimeout(() => {
+            tooltip.classList.add('hidden');
+        }, 300);
+    });
+}
+
 function renderCurrentPreview() {
     const preview = document.getElementById('preview-text');
     if (!preview) {
@@ -1118,18 +1229,70 @@ function renderCurrentPreview() {
     }
 
     if (previewState.currentViewMode === 'compare') {
-        const correctedHtml = previewState.fileContent.correctedAnnotatedHtml || '';
         const originalHtml = renderRichDocument(previewState.fileContent.original || '', false);
-        const correctedViewHtml = correctedHtml ? renderRichDocument(correctedHtml, true) : renderRichDocument(previewState.fileContent.corrected || '', false);
         const redlineSource = previewState.fileContent.redline || previewState.fileContent.corrected || '';
         const redlineHtml = renderRichDocument(redlineSource, true);
-        preview.innerHTML = [
-            '<div class="compare-grid">',
-            `<section class="compare-pane"><h3>Original</h3><div class="compare-content">${originalHtml}</div></section>`,
-            `<section class="compare-pane"><h3>Corrected</h3><div class="compare-content">${correctedViewHtml}</div></section>`,
-            `<section class="compare-pane"><h3>Redline</h3><div class="compare-content">${redlineHtml}</div></section>`,
-            '</div>'
-        ].join('');
+        
+        let groupsHtml = '';
+        const safeDecisions = normalizeGroupDecisions(previewState.fileContent.groupDecisions);
+        
+        previewConstants.CORRECTION_GROUP_ORDER.forEach((groupKey) => {
+            const label = previewConstants.CORRECTION_GROUP_LABEL[groupKey] || groupKey;
+            const accepted = !!safeDecisions[groupKey];
+            groupsHtml += `
+                <div class="floating-group-item">
+                    <span class="floating-group-label">${previewHelpers.escapeHtml(label)}</span>
+                    <div class="floating-btn-toggle">
+                        <button class="floating-chip ${accepted ? 'active' : ''}" onclick="setGroupDecision('${groupKey}', true)">Accept</button>
+                        <button class="floating-chip reject ${!accepted ? 'active' : ''}" onclick="setGroupDecision('${groupKey}', false)">Reject</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        preview.innerHTML = `
+            <div class="split-canvas-container">
+                <div class="split-pane pane-left">
+                    <div class="pane-header glassmorphic">
+                        <span class="pane-title">Original Manuscript</span>
+                        <div class="pane-badge">Original</div>
+                    </div>
+                    <div class="pane-content scroll-syncable" id="pane-left-content">
+                        ${originalHtml}
+                    </div>
+                </div>
+                
+                <div class="split-pane pane-right">
+                    <div class="pane-header glassmorphic">
+                        <span class="pane-title">Interactive Corrected & Redline</span>
+                        <div class="pane-badge success">Redline Diffs</div>
+                    </div>
+                    <div class="pane-content scroll-syncable" id="pane-right-content">
+                        ${redlineHtml}
+                    </div>
+                </div>
+                
+                <!-- Floating Glassmorphic Control Overlay -->
+                <div class="floating-glass-controls" id="floating-glass-controls">
+                    <div class="floating-header">
+                        <h4>Change Decisions</h4>
+                        <span class="floating-subtitle">Toggle categories to compile manuscript</span>
+                    </div>
+                    <div class="floating-group-list">
+                        ${groupsHtml}
+                    </div>
+                    <div class="floating-actions">
+                        <button class="floating-btn accept-all" onclick="applyAllGroupDecisions(true)">Accept All</button>
+                        <button class="floating-btn reject-all" onclick="applyAllGroupDecisions(false)">Reject All</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        setTimeout(() => {
+            initializeInteractiveSplitCanvas();
+        }, 50);
+        
         return;
     }
 
