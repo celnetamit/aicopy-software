@@ -1696,9 +1696,69 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("not installed", message)
 
-        ok, message = webapp._validate_ai_provider_runtime("ollama", "llama3.1:latest", "", "http://localhost:11434")
         self.assertTrue(ok)
         self.assertIn("with model llama3.1:latest", message)
+
+    def test_admin_journal_profiles_requires_admin(self):
+        self._login("member@conwiz.in")
+        status, payload = self.client.request("GET", "/api/admin/journal-profiles")
+        self.assertEqual(status, 403)
+        self.assertFalse(payload.get("success"))
+        self.assertEqual(payload.get("error_code"), "FORBIDDEN")
+
+    def test_admin_journal_profiles_returns_all_profiles_and_computes_scores(self):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        # Fetch without a task_id
+        status, payload = admin_client.request("GET", "/api/admin/journal-profiles")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        profiles = payload.get("profiles", [])
+        self.assertGreaterEqual(len(profiles), 1)
+        
+        # Verify first item schema
+        first = profiles[0]
+        self.assertIn("id", first)
+        self.assertIn("label", first)
+        self.assertIn("initials_with_periods", first)
+        self.assertIn("title_case", first)
+        self.assertIn("journal_abbrev", first)
+        self.assertEqual(first["match_score"], 100)
+        self.assertEqual(first["issue_total"], 0)
+
+        # Upload a task and fetch with task_id to check score computation
+        self._login("writer@conwiz.in")
+        status, upload_payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {
+                "file_name": "refs.txt",
+                "content": (
+                    "Introduction cites [1].\n"
+                    "References\n"
+                    "[1] Kaplan S. The restorative benefits of nature toward an integrative framework. "
+                    "J Environ Psychol. 1995 ;15(3):169-182.\n"
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        task_id = upload_payload.get("task_id")
+        self.assertTrue(task_id)
+
+        status, payload = admin_client.request("GET", "/api/admin/journal-profiles", query={"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        profiles = payload.get("profiles", [])
+        self.assertGreaterEqual(len(profiles), 1)
+        
+        for p in profiles:
+            self.assertIn("match_score", p)
+            self.assertIn("issue_total", p)
+            self.assertIn("reference_count", p)
+            self.assertIn("validation_messages", p)
 
 
 if __name__ == "__main__":

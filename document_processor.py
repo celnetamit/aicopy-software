@@ -120,6 +120,23 @@ class DocumentProcessor:
         self._last_docx_package_report: Dict = {}
         self._nlp = None
         self._revision_id = 1
+        self.progress_callback = None
+        self._tokens_consumed = 0
+
+    def set_progress_callback(self, callback):
+        self.progress_callback = callback
+
+    def _report_progress(self, progress_percent: float, stage: str, estimated_seconds_remaining: int = 0):
+        if self.progress_callback:
+            try:
+                self.progress_callback(
+                    progress_percent=float(progress_percent),
+                    stage=str(stage or ""),
+                    tokens_consumed=int(self._tokens_consumed),
+                    estimated_seconds_remaining=int(estimated_seconds_remaining)
+                )
+            except Exception as e:
+                print(f"[DocumentProcessor] Progress callback failed: {e}")
 
     def _reset_processing_audit(self):
         """Reset per-run audit data."""
@@ -132,6 +149,7 @@ class DocumentProcessor:
         }
         self._last_journal_profile_report = {}
         self._last_citation_reference_report = {}
+        self._tokens_consumed = 0
 
     def _quality_score(self, risk_score: Optional[int]) -> int:
         """Convert risk score (lower is better) into quality score (0-100)."""
@@ -178,12 +196,17 @@ class DocumentProcessor:
         self._reset_processing_audit()
         self._attach_docx_package_summary()
 
+        self._report_progress(5.0, "Parsing document structure...", 20)
+
         # First apply rule-based corrections
+        self._report_progress(15.0, "Running rule-based CMOS corrections...", 15)
         rules_corrected = self.editor.correct_all(text, options)
 
         # Then enhance with AI for context-aware corrections
+        self._report_progress(30.0, "Rule-based pass complete. Dispatching to AI editor...", 10)
         ai_corrected = self._call_ai_editor(text, rules_corrected, options)
         if ai_corrected:
+            self._report_progress(85.0, "AI editing completed. Building reference profiles...", 3)
             ai_first_cmos = self._is_ai_first_cmos_mode(options)
             # In AI-first CMOS mode, keep AI as the language authority and only
             # apply structure-safe normalization afterward.
@@ -200,8 +223,10 @@ class DocumentProcessor:
             self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(selected, options)
             self._attach_cmos_guardrails(original=text, corrected=selected, options=options)
             selected = self.editor.append_online_reference_links(selected, self._last_citation_reference_report, options)
+            self._report_progress(100.0, "Manuscript processing completed successfully!", 0)
             return selected
 
+        self._report_progress(85.0, "AI phase skipped/failed. Finalizing rule-based adjustments...", 2)
         if self._last_ai_pipeline_note:
             self._last_selection_note = self._last_ai_pipeline_note
         else:
@@ -214,7 +239,9 @@ class DocumentProcessor:
         self._last_journal_profile_report = self.editor.build_reference_profile_report(rules_corrected, options)
         self._last_citation_reference_report = self.editor.build_citation_reference_validator_report(rules_corrected, options)
         self._attach_cmos_guardrails(original=text, corrected=rules_corrected, options=options)
-        return self.editor.append_online_reference_links(rules_corrected, self._last_citation_reference_report, options)
+        result = self.editor.append_online_reference_links(rules_corrected, self._last_citation_reference_report, options)
+        self._report_progress(100.0, "Manuscript processing completed successfully!", 0)
+        return result
 
     def _is_ai_first_cmos_mode(self, options: Dict) -> bool:
         ai_options = options.get("ai", {}) if isinstance(options, dict) else {}
@@ -698,6 +725,13 @@ Final consistent manuscript:"""
         )
 
         for idx, chunk in enumerate(chunks, start=1):
+            progress_val = 30.0 + ((idx - 1) / total_chunks) * 55.0
+            est_seconds = (total_chunks - idx + 1) * 4
+            self._report_progress(
+                progress_percent=progress_val,
+                stage=f"Analyzing manuscript section {idx} of {total_chunks} with AI...",
+                estimated_seconds_remaining=est_seconds
+            )
             prompt = self._build_edit_prompt(
                 chunk["original"],
                 chunk["baseline"],
@@ -863,6 +897,11 @@ Final consistent manuscript:"""
             f"acceptance {round((accepted_chunks / total_chunks) * 100, 2) if total_chunks else 0.0}%). "
             f"{consistency_note}"
         )
+        self._report_progress(
+            progress_percent=90.0,
+            stage="AI sectioned analysis complete. Applying guardrails...",
+            estimated_seconds_remaining=2
+        )
         return merged
 
     def _get_ai_settings(self, options: Dict) -> Dict:
@@ -971,7 +1010,9 @@ Final consistent manuscript:"""
 
             if response.status_code == 200:
                 self._clear_ai_warning_state()
-                result = response.json().get("response", "")
+                resp_data = response.json()
+                self._tokens_consumed += (resp_data.get("prompt_eval_count", 0) or 0) + (resp_data.get("eval_count", 0) or 0)
+                result = resp_data.get("response", "")
                 return self._extract_corrected_text(result)
             if response.status_code == 404 and "not found" in response.text.lower():
                 fallback_model = None
@@ -990,7 +1031,9 @@ Final consistent manuscript:"""
                             category="ollama_fallback_model_retry",
                         )
                         self._clear_ai_warning_state()
-                        result = retry.json().get("response", "")
+                        retry_data = retry.json()
+                        self._tokens_consumed += (retry_data.get("prompt_eval_count", 0) or 0) + (retry_data.get("eval_count", 0) or 0)
+                        result = retry_data.get("response", "")
                         return self._extract_corrected_text(result)
                 self._warn_once(
                     f"Ollama model '{resolved_model}' not found; falling back to rule-based editing.",
@@ -1096,7 +1139,11 @@ Final consistent manuscript:"""
             response = requests.post(url, json=payload, timeout=60)
             if response.status_code == 200:
                 self._last_ai_warning = ""
-                return self._extract_corrected_text(self._extract_gemini_text(response.json()))
+                resp_json = response.json()
+                usage = resp_json.get("usageMetadata", {})
+                if usage:
+                    self._tokens_consumed += usage.get("totalTokenCount", 0) or 0
+                return self._extract_corrected_text(self._extract_gemini_text(resp_json))
             if response.status_code == 403:
                 self._warn_once(
                     "Gemini request blocked (403). Check API key/project restrictions or use Ollama."
@@ -1147,7 +1194,11 @@ Final consistent manuscript:"""
             response = requests.post(url, headers=headers, json=payload, timeout=75)
             if response.status_code == 200:
                 self._last_ai_warning = ""
-                return self._extract_corrected_text(self._extract_openrouter_text(response.json()))
+                resp_json = response.json()
+                usage = resp_json.get("usage", {})
+                if usage:
+                    self._tokens_consumed += usage.get("total_tokens", 0) or 0
+                return self._extract_corrected_text(self._extract_openrouter_text(resp_json))
             if response.status_code in (401, 403):
                 self._warn_once("OpenRouter request unauthorized/forbidden; check API key and model access.")
             elif response.status_code == 429:

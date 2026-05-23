@@ -559,6 +559,40 @@ function pollTaskUntilProcessed(taskId) {
         }
         const task = response.task;
         const job = response.job && typeof response.job === 'object' ? response.job : null;
+        
+        if (job) {
+            if (mainState.processingMessageIntervalId) {
+                window.clearInterval(mainState.processingMessageIntervalId);
+                mainState.processingMessageIntervalId = null;
+            }
+            if (typeof job.progress_percent === 'number') {
+                setProgress(job.progress_percent);
+                const pctLabel = document.getElementById('progress-percentage-label');
+                if (pctLabel) {
+                    pctLabel.textContent = Math.round(job.progress_percent) + '%';
+                }
+            }
+            if (job.stage && mainDom.processingMessage) {
+                mainDom.processingMessage.textContent = job.stage;
+            }
+            const tokensVal = document.getElementById('telemetry-tokens');
+            if (tokensVal) {
+                tokensVal.textContent = (typeof job.tokens_consumed === 'number') 
+                    ? job.tokens_consumed.toLocaleString() 
+                    : (job.tokens_consumed || 0);
+            }
+            const timeRemVal = document.getElementById('telemetry-time-remaining');
+            if (timeRemVal) {
+                if (typeof job.estimated_seconds_remaining === 'number' && job.estimated_seconds_remaining > 0) {
+                    timeRemVal.textContent = formatProcessingDuration(job.estimated_seconds_remaining);
+                } else if (job.estimated_seconds_remaining === 0 && job.progress_percent >= 90) {
+                    timeRemVal.textContent = 'Finishing...';
+                } else {
+                    timeRemVal.textContent = 'Calculating...';
+                }
+            }
+        }
+
         const jobStatus = String((job && job.status) || '').toUpperCase();
         if (jobStatus === 'SUCCEEDED' && job && job.result && job.result.success) {
             completeTrackedProcessingFromPayload(job.result, 'Processing complete');

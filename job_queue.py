@@ -28,6 +28,10 @@ class BackgroundJob:
     finished_at: int = 0
     error: str = ""
     result: Optional[Dict] = None
+    progress_percent: float = 0.0
+    stage: str = "Initializing"
+    tokens_consumed: int = 0
+    estimated_seconds_remaining: int = 0
 
     def snapshot(self) -> Dict:
         return {
@@ -39,6 +43,10 @@ class BackgroundJob:
             "finished_at": self.finished_at,
             "error": self.error,
             "result": self.result if self.status == JOB_SUCCEEDED else None,
+            "progress_percent": self.progress_percent,
+            "stage": self.stage,
+            "tokens_consumed": self.tokens_consumed,
+            "estimated_seconds_remaining": self.estimated_seconds_remaining,
         }
 
 
@@ -112,3 +120,15 @@ class BackgroundJobQueue:
             job.status = JOB_FAILED
             job.finished_at = now
             job.error = str(error or "Job failed")
+
+    def update_progress(self, task_id: str, progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
+        with self._lock:
+            job_id = self._latest_by_task.get(str(task_id or ""))
+            if not job_id:
+                return
+            job = self._jobs.get(job_id)
+            if job:
+                job.progress_percent = float(progress_percent)
+                job.stage = str(stage or "")
+                job.tokens_consumed = int(tokens_consumed)
+                job.estimated_seconds_remaining = int(estimated_seconds_remaining)

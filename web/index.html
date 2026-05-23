@@ -330,11 +330,34 @@
                     <span id="processing-mode-indicator" class="processing-mode-pill">Mode: Unknown</span>
                 </div>
                 <div class="processing-presence hidden" id="processing-presence" aria-live="polite">
-                    <div class="processing-presence-main">
-                        <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
-                        <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                    <div class="processing-presence-header">
+                        <div class="processing-presence-main">
+                            <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
+                            <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                        </div>
+                        <span class="processing-timer" id="processing-timer">00:00</span>
                     </div>
-                    <span class="processing-timer" id="processing-timer">00:00</span>
+                    <div class="processing-telemetry-body" id="processing-telemetry-body">
+                        <div class="telemetry-bar-row">
+                            <span class="progress-percentage-label" id="progress-percentage-label">0%</span>
+                        </div>
+                        <div class="telemetry-metrics-grid">
+                            <div class="telemetry-metric">
+                                <span class="metric-icon">🪙</span>
+                                <div class="metric-details">
+                                    <span class="metric-label">Tokens Consumed</span>
+                                    <span class="metric-value" id="telemetry-tokens">0</span>
+                                </div>
+                            </div>
+                            <div class="telemetry-metric">
+                                <span class="metric-icon">⏳</span>
+                                <div class="metric-details">
+                                    <span class="metric-label">Est. Remaining</span>
+                                    <span class="metric-value" id="telemetry-time-remaining">Calculating...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="progress-fill"></div>
@@ -621,6 +644,21 @@
                     <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-output">No diagnostics loaded yet.</pre>
                     <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-trends-output">No unresolved trend snapshot yet.</pre>
                 </section>
+
+                <section class="admin-block">
+                    <h3>Journal Style Catalog</h3>
+                    <p class="hint-text">Inspect bibliographic style profiles and check real-time compatibility Guidelines Match Scores for loaded manuscripts.</p>
+                    
+                    <div class="inline-row admin-action-row" style="margin-bottom: 12px; gap: 10px;">
+                        <input type="text" id="admin-catalog-search" class="input-field" placeholder="Search by name, ID, or rules..." style="flex: 1;" />
+                        <button class="btn-secondary btn-small" id="admin-refresh-catalog-btn" type="button">Refresh Catalog</button>
+                    </div>
+
+                    <div id="admin-catalog-grid" class="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
+                        <p class="hint-text">Loading style profiles...</p>
+                    </div>
+                </section>
+
 
                 <section class="admin-block">
                     <h3>Users</h3>

@@ -267,6 +267,9 @@
                     api_key: input.api_key || '',
                     ollama_host: input.ollama_host || ''
                 });
+            },
+            journalProfiles: function (taskId) {
+                return getJson('/api/admin/journal-profiles' + buildQuery({ task_id: taskId || '' }));
             }
         }
     };

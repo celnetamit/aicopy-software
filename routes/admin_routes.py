@@ -223,3 +223,57 @@ def register_admin_routes(app, deps):
             },
             session_id=context.session_id,
         )
+
+    @app.get("/api/admin/journal-profiles")
+    @deps.require_admin
+    def api_admin_journal_profiles():
+        context = deps.auth_context_from_request()
+        task_id = str(request.query.get("task_id", "") or "").strip()
+        
+        from chicago_editor import ChicagoEditor
+        profiles = ChicagoEditor.JOURNAL_PROFILES
+        
+        task = None
+        if task_id:
+            task = deps.store.get_task_for_user(task_id=task_id, user_id=context.user_id, is_admin=True)
+            
+        payload = []
+        for pid, pdata in profiles.items():
+            item = {
+                "id": pid,
+                "label": pdata.get("label", pid),
+                "initials_with_periods": bool(pdata.get("initials_with_periods", False)),
+                "title_case": str(pdata.get("title_case", "sentence")),
+                "journal_abbrev": str(pdata.get("journal_abbrev", "nlm")),
+                "match_score": 100,
+                "issue_total": 0,
+                "reference_count": 0,
+                "validation_messages": []
+            }
+            if task:
+                text_to_analyze = str(task.get("original_text") or "")
+                editor = ChicagoEditor()
+                # Run the report with a mock options for this specific profile
+                report = editor.build_reference_profile_report(text_to_analyze, {"journal_profile": pid})
+                ref_count = report.get("reference_count", 0)
+                issue_counts = report.get("issue_counts", {})
+                issue_total = sum(issue_counts.values())
+                
+                # Compute Guidelines Match Score
+                if ref_count > 0:
+                    # Deduction formula: start at 100, deduct points per issue type, down to a minimum of 25
+                    deduction = sum(min(20, count * 5) for count in issue_counts.values())
+                    match_score = max(25, 100 - deduction)
+                else:
+                    match_score = 100
+                    
+                item["match_score"] = match_score
+                item["issue_total"] = issue_total
+                item["reference_count"] = ref_count
+                item["validation_messages"] = report.get("validation_messages", [])
+                
+            payload.append(item)
+            
+        deps.record_audit(event_type="admin_journal_profiles_viewed", actor_user_id=context.user_id)
+        return deps.json_response({"success": True, "profiles": payload}, session_id=context.session_id)
+

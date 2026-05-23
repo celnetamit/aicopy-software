@@ -732,6 +732,23 @@ function resetAdminReferenceValidationDiagnostics() {
     return undefined;
 }
 
+function refreshJournalProfiles() {
+    const referenceModule = appAuth.adminReferenceDiagnostics || {};
+    if (typeof referenceModule.refreshJournalProfiles === 'function') {
+        return referenceModule.refreshJournalProfiles();
+    }
+    return undefined;
+}
+
+function filterAndRenderProfiles(query) {
+    const referenceModule = appAuth.adminReferenceDiagnostics || {};
+    if (typeof referenceModule.filterAndRenderProfiles === 'function') {
+        return referenceModule.filterAndRenderProfiles(query);
+    }
+    return undefined;
+}
+
+
 function updateAdminUserStatus(userId, nextStatus) {
     const usersModule = appAuth.adminUsers || {};
     if (typeof usersModule.updateAdminUserStatus === 'function') {
@@ -830,6 +847,8 @@ appAuth.authAdmin = {
     renderAdminReferenceValidationDiagnostics,
     refreshAdminReferenceValidationDiagnostics,
     resetAdminReferenceValidationDiagnostics,
+    refreshJournalProfiles,
+    filterAndRenderProfiles,
     updateAdminUserStatus,
     updateAdminAiValidationHint,
     updateAdminEditingControlsHint,

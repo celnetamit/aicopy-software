@@ -136,8 +136,156 @@ function resetAdminReferenceValidationDiagnostics() {
     );
 }
 
+let loadedProfiles = [];
+
+function renderJournalProfiles(profiles) {
+    if (!adminReferenceDom.adminCatalogGrid) {
+        return;
+    }
+    const safeProfiles = Array.isArray(profiles) ? profiles : [];
+    if (safeProfiles.length === 0) {
+        adminReferenceDom.adminCatalogGrid.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 24px; color: #7d8fa9; font-size: 13px;">
+                No journal style profiles found matching the filter criteria.
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+    safeProfiles.forEach((profile) => {
+        const score = typeof profile.match_score === 'number' ? Math.round(profile.match_score) : null;
+        
+        let scoreBarColor = '#4ecca3'; // High >= 85
+        let scoreTextColor = '#a9f2d3';
+        if (score !== null) {
+            if (score < 60) {
+                scoreBarColor = '#ffb8c2'; // Low
+                scoreTextColor = '#ffb8c2';
+            } else if (score < 85) {
+                scoreBarColor = '#ffd58d'; // Medium
+                scoreTextColor = '#ffd58d';
+            }
+        }
+
+        const authorInitials = profile.initials_with_periods ? "Keep periods (e.g. A. B.)" : "Remove periods (e.g. AB)";
+        const titleCase = profile.title_case === "title" ? "Title Case" : "Sentence Case";
+        const journalNames = profile.journal_abbrev === "nlm" ? "NLM Abbreviations" : "Full Names";
+
+        html += `
+            <div class="catalog-card" data-id="${adminReferenceRoot.helpers.escapeHtml(profile.id || '')}">
+                <div class="catalog-card-header">
+                    <h4 class="catalog-card-title">${adminReferenceRoot.helpers.escapeHtml(profile.label || profile.id || 'Unnamed Journal')}</h4>
+                    <span class="catalog-card-id">${adminReferenceRoot.helpers.escapeHtml(profile.id || '')}</span>
+                </div>
+                <div class="catalog-card-body">
+                    <div class="catalog-rule-item">
+                        <span class="catalog-rule-label">Author Initials:</span>
+                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(authorInitials)}</span>
+                    </div>
+                    <div class="catalog-rule-item">
+                        <span class="catalog-rule-label">Title Case:</span>
+                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(titleCase)}</span>
+                    </div>
+                    <div class="catalog-rule-item">
+                        <span class="catalog-rule-label">Journal Names:</span>
+                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(journalNames)}</span>
+                    </div>
+                    
+                    ${score !== null ? `
+                        <div class="catalog-score-container">
+                            <div class="catalog-score-header">
+                                <span class="catalog-score-label">Guidelines Match Score:</span>
+                                <span class="catalog-score-val" style="color: ${scoreTextColor};">${score}%</span>
+                            </div>
+                            <div class="catalog-score-bar-bg">
+                                <div class="catalog-score-bar-fg" style="width: ${score}%; background: ${scoreBarColor};"></div>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+                
+                ${profile.validation_messages && profile.validation_messages.length > 0 ? `
+                    <div class="catalog-card-footer">
+                        <span class="catalog-score-label" style="font-size: 11px;">Identified Issues (${profile.validation_messages.length}):</span>
+                        <ul class="catalog-issues-list">
+                            ${profile.validation_messages.map(msg => `<li>${adminReferenceRoot.helpers.escapeHtml(msg)}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    });
+
+    adminReferenceDom.adminCatalogGrid.innerHTML = html;
+}
+
+function refreshJournalProfiles() {
+    if (!adminReferenceState.currentUser || String(adminReferenceState.currentUser.role || '').toUpperCase() !== 'ADMIN') {
+        return;
+    }
+    if (adminReferenceDom.adminCatalogGrid) {
+        adminReferenceDom.adminCatalogGrid.innerHTML = '<p class="hint-text" style="grid-column: 1 / -1; text-align: center;">Loading style profiles...</p>';
+    }
+    if (adminReferenceDom.adminRefreshCatalogBtn) {
+        adminReferenceDom.adminRefreshCatalogBtn.disabled = true;
+    }
+
+    const currentTaskId = adminReferenceState.fileContent.taskId || '';
+
+    callReferenceApiOrEel(
+        (api) => api.admin && typeof api.admin.journalProfiles === 'function' ? api.admin.journalProfiles(currentTaskId) : null,
+        'admin_get_journal_profiles',
+        [currentTaskId],
+        function (response) {
+            if (adminReferenceDom.adminRefreshCatalogBtn) {
+                adminReferenceDom.adminRefreshCatalogBtn.disabled = false;
+            }
+            if (!response || !response.success) {
+                const message = response && response.error ? String(response.error) : 'Could not load journal profiles';
+                if (adminReferenceDom.adminCatalogGrid) {
+                    adminReferenceDom.adminCatalogGrid.innerHTML = `
+                        <div style="grid-column: 1 / -1; text-align: center; padding: 24px; color: #ffb8c2; font-size: 13px;">
+                            ${adminReferenceRoot.helpers.escapeHtml(message)}
+                        </div>
+                    `;
+                }
+                return;
+            }
+            loadedProfiles = Array.isArray(response.profiles) ? response.profiles : [];
+            
+            const searchValue = adminReferenceDom.adminCatalogSearch ? adminReferenceDom.adminCatalogSearch.value.trim().toLowerCase() : '';
+            filterAndRenderProfiles(searchValue);
+        }
+    );
+}
+
+function filterAndRenderProfiles(query) {
+    const cleanQuery = String(query || '').trim().toLowerCase();
+    if (!cleanQuery) {
+        renderJournalProfiles(loadedProfiles);
+        return;
+    }
+    const filtered = loadedProfiles.filter((profile) => {
+        const nameMatch = String(profile.label || '').toLowerCase().includes(cleanQuery);
+        const idMatch = String(profile.id || '').toLowerCase().includes(cleanQuery);
+        const authorInitials = profile.initials_with_periods ? "keep periods (e.g. a. b.)" : "remove periods (e.g. ab)";
+        const titleCase = profile.title_case === "title" ? "title case" : "sentence case";
+        const journalNames = profile.journal_abbrev === "nlm" ? "nlm abbreviations" : "full names";
+        
+        return nameMatch || idMatch || 
+               authorInitials.includes(cleanQuery) || 
+               titleCase.includes(cleanQuery) || 
+               journalNames.includes(cleanQuery);
+    });
+    renderJournalProfiles(filtered);
+}
+
 appAdminReferenceRoot.adminReferenceDiagnostics = {
     renderAdminReferenceValidationDiagnostics,
     refreshAdminReferenceValidationDiagnostics,
-    resetAdminReferenceValidationDiagnostics
+    resetAdminReferenceValidationDiagnostics,
+    refreshJournalProfiles,
+    filterAndRenderProfiles
 };
+

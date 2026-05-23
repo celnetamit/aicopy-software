@@ -230,6 +230,14 @@ function bindAdminPanelEvents() {
     if (settingsPanelDom.adminRefreshAuditBtn) settingsPanelDom.adminRefreshAuditBtn.addEventListener('click', settingsPanelAuth.refreshAdminAudit);
     if (settingsPanelDom.adminRefreshReferenceDiagnosticsBtn) settingsPanelDom.adminRefreshReferenceDiagnosticsBtn.addEventListener('click', settingsPanelAuth.refreshAdminReferenceValidationDiagnostics);
     if (settingsPanelDom.adminResetReferenceDiagnosticsBtn) settingsPanelDom.adminResetReferenceDiagnosticsBtn.addEventListener('click', settingsPanelAuth.resetAdminReferenceValidationDiagnostics);
+    if (settingsPanelDom.adminRefreshCatalogBtn) settingsPanelDom.adminRefreshCatalogBtn.addEventListener('click', settingsPanelAuth.refreshJournalProfiles);
+    if (settingsPanelDom.adminCatalogSearch) {
+        settingsPanelDom.adminCatalogSearch.addEventListener('input', (e) => {
+            if (typeof settingsPanelAuth.filterAndRenderProfiles === 'function') {
+                settingsPanelAuth.filterAndRenderProfiles(e.target.value);
+            }
+        });
+    }
     if (settingsPanelDom.adminLoadGlobalSettingsBtn) settingsPanelDom.adminLoadGlobalSettingsBtn.addEventListener('click', settingsPanelAuth.loadAdminGlobalSettings);
     if (settingsPanelDom.adminSaveGlobalSettingsBtn) settingsPanelDom.adminSaveGlobalSettingsBtn.addEventListener('click', settingsPanelAuth.saveAdminGlobalSettings);
     if (settingsPanelDom.adminSettingAiProvider) settingsPanelDom.adminSettingAiProvider.addEventListener('change', () => settingsPanelAuth.updateAdminGlobalAiProviderUI(true));

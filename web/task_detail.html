@@ -330,11 +330,34 @@
                     <span id="processing-mode-indicator" class="processing-mode-pill">Mode: Unknown</span>
                 </div>
                 <div class="processing-presence hidden" id="processing-presence" aria-live="polite">
-                    <div class="processing-presence-main">
-                        <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
-                        <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                    <div class="processing-presence-header">
+                        <div class="processing-presence-main">
+                            <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
+                            <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                        </div>
+                        <span class="processing-timer" id="processing-timer">00:00</span>
                     </div>
-                    <span class="processing-timer" id="processing-timer">00:00</span>
+                    <div class="processing-telemetry-body" id="processing-telemetry-body">
+                        <div class="telemetry-bar-row">
+                            <span class="progress-percentage-label" id="progress-percentage-label">0%</span>
+                        </div>
+                        <div class="telemetry-metrics-grid">
+                            <div class="telemetry-metric">
+                                <span class="metric-icon">🪙</span>
+                                <div class="metric-details">
+                                    <span class="metric-label">Tokens Consumed</span>
+                                    <span class="metric-value" id="telemetry-tokens">0</span>
+                                </div>
+                            </div>
+                            <div class="telemetry-metric">
+                                <span class="metric-icon">⏳</span>
+                                <div class="metric-details">
+                                    <span class="metric-label">Est. Remaining</span>
+                                    <span class="metric-value" id="telemetry-time-remaining">Calculating...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="progress-fill"></div>
