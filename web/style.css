@@ -2081,17 +2081,114 @@ section h2 {
 
 .processing-presence {
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin: 0 0 12px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(233, 69, 96, 0.25);
+    background:
+        radial-gradient(circle at top left, rgba(233, 69, 96, 0.2), transparent 48%),
+        linear-gradient(135deg, rgba(28, 33, 58, 0.98), rgba(17, 22, 42, 0.99));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 32px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(12px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.processing-presence-header {
+    display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin: 0 0 10px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    border: 1px solid rgba(233, 69, 96, 0.22);
-    background:
-        radial-gradient(circle at top left, rgba(233, 69, 96, 0.18), transparent 48%),
-        linear-gradient(135deg, rgba(28, 33, 58, 0.96), rgba(17, 22, 42, 0.98));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    width: 100%;
+}
+
+.processing-telemetry-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid rgba(233, 69, 96, 0.15);
+    padding-top: 10px;
+    animation: fadeInTelemetry 0.4s ease-out;
+}
+
+.telemetry-bar-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.progress-percentage-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ff8aa0;
+    background: rgba(233, 69, 96, 0.15);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(233, 69, 96, 0.25);
+}
+
+.telemetry-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.telemetry-metric {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: background 0.2s ease;
+}
+
+.telemetry-metric:hover {
+    background: rgba(233, 69, 96, 0.05);
+    border-color: rgba(233, 69, 96, 0.15);
+}
+
+.metric-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.metric-details {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.metric-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(246, 248, 255, 0.6);
+}
+
+.metric-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@keyframes fadeInTelemetry {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .processing-presence.hidden {
@@ -2984,4 +3081,472 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     box-shadow: 0 0 15px rgba(159, 196, 255, 0.1) inset;
 }
 
+/* Journal Profile Catalog & Guidelines Match Score UI */
+.catalog-card {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 16px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+}
+
+.catalog-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, #9fc4ff, #4ecca3);
+    opacity: 0.8;
+}
+
+.catalog-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(159, 196, 255, 0.25);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.catalog-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.catalog-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #e9f1ff;
+    margin: 0;
+    line-height: 1.3;
+}
+
+.catalog-card-id {
+    font-size: 10px;
+    font-family: monospace;
+    background: rgba(159, 196, 255, 0.12);
+    border: 1px solid rgba(159, 196, 255, 0.2);
+    color: #9fc4ff;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.catalog-card-body {
+    font-size: 12px;
+    color: #b0c4de;
+    flex: 1;
+    margin-bottom: 16px;
+}
+
+.catalog-rule-item {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+    padding-bottom: 4px;
+}
+
+.catalog-rule-label {
+    color: #7d8fa9;
+    font-weight: 500;
+}
+
+.catalog-rule-value {
+    color: #e9f1ff;
+    font-weight: 600;
+}
+
+.catalog-score-container {
+    margin-top: 12px;
+}
+
+.catalog-score-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+
+.catalog-score-label {
+    color: #a0a0a0;
+    font-weight: 600;
+}
+
+.catalog-score-val {
+    font-weight: 800;
+}
+
+.catalog-score-bar-bg {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.catalog-score-bar-fg {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.catalog-card-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 12px;
+    margin-top: 8px;
+}
+
+.catalog-issues-list {
+    margin: 4px 0 0 0;
+    padding-left: 14px;
+    font-size: 11px;
+    color: #ffd58d;
+}
+
+.catalog-issues-list li {
+    margin-bottom: 2px;
+}
+
+/* ============================================================
+   Bibliography Healing Engine — Premium UI Components
+   ============================================================ */
+
+/* Heal-Bibliography trigger bar (inside pane-header on compare view) */
+.heal-bib-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    background: linear-gradient(135deg, rgba(99, 57, 255, 0.12) 0%, rgba(20, 20, 45, 0.8) 100%);
+    border-bottom: 1px solid rgba(99, 57, 255, 0.2);
+    backdrop-filter: blur(8px);
+    flex-shrink: 0;
+    transition: background 0.3s ease;
+}
+
+.heal-bib-bar:hover {
+    background: linear-gradient(135deg, rgba(99, 57, 255, 0.18) 0%, rgba(20, 20, 55, 0.9) 100%);
+}
+
+.heal-bib-label {
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #b0a0ff;
+    flex: 1;
+}
+
+.heal-bib-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 16px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #6339ff 0%, #a855f7 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 18px rgba(99, 57, 255, 0.35);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.heal-bib-btn::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    transition: left 0.5s ease;
+}
+
+.heal-bib-btn:hover::before {
+    left: 100%;
+}
+
+.heal-bib-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(99, 57, 255, 0.5);
+}
+
+.heal-bib-btn:active {
+    transform: translateY(0px);
+    box-shadow: 0 2px 10px rgba(99, 57, 255, 0.3);
+}
+
+.heal-bib-btn:disabled {
+    background: rgba(99, 57, 255, 0.2);
+    color: rgba(255, 255, 255, 0.4);
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.heal-bib-btn:disabled::before {
+    display: none;
+}
+
+.heal-bib-btn .btn-icon {
+    font-size: 13px;
+    display: inline-block;
+}
+
+.heal-bib-btn.healing .btn-icon {
+    animation: heal-spin 1s linear infinite;
+}
+
+@keyframes heal-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* Healing progress overlay on pane-right */
+.healing-progress-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 10, 26, 0.88);
+    backdrop-filter: blur(4px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    z-index: 50;
+    border-radius: 12px;
+    animation: fade-in 0.3s ease;
+}
+
+@keyframes fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.healing-progress-icon {
+    font-size: 40px;
+    animation: heal-bounce 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes heal-bounce {
+    from { transform: translateY(0px) scale(1.0); }
+    to   { transform: translateY(-10px) scale(1.08); }
+}
+
+.healing-progress-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: #d0c0ff;
+    text-align: center;
+}
+
+.healing-progress-stage {
+    font-size: 12px;
+    color: #7c8ea8;
+    text-align: center;
+    max-width: 280px;
+    line-height: 1.5;
+    transition: color 0.3s ease;
+}
+
+.healing-progress-bar-wrap {
+    width: 260px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid rgba(99, 57, 255, 0.2);
+}
+
+.healing-progress-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #6339ff 0%, #a855f7 60%, #6339ff 100%);
+    background-size: 200% 100%;
+    animation: healing-shimmer 2s linear infinite;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes healing-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Status banner shown after healing completes */
+.healing-status-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    background: linear-gradient(135deg, rgba(47, 191, 113, 0.12) 0%, rgba(20, 20, 45, 0.8) 100%);
+    border-bottom: 1px solid rgba(47, 191, 113, 0.22);
+    font-size: 12px;
+    flex-shrink: 0;
+    animation: slide-down 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slide-down {
+    from { transform: translateY(-100%); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+}
+
+.healing-status-icon {
+    font-size: 16px;
+}
+
+.healing-status-text {
+    flex: 1;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    color: #4efca0;
+}
+
+.healing-status-detail {
+    font-size: 11px;
+    color: #7c8ea8;
+}
+
+/* HSL-pulsed diff highlights for healed reference segments */
+.bib-healed {
+    position: relative;
+    background: rgba(99, 57, 255, 0.12);
+    border-bottom: 1.5px solid rgba(168, 85, 247, 0.5);
+    border-radius: 2px;
+    cursor: help;
+    padding: 0 2px;
+    transition: background 0.3s ease;
+    animation: bib-heal-pulse 3s ease-in-out infinite;
+}
+
+@keyframes bib-heal-pulse {
+    0%, 100% {
+        background: rgba(99, 57, 255, 0.08);
+        box-shadow: 0 0 0 0px rgba(99, 57, 255, 0.25);
+    }
+    50% {
+        background: rgba(99, 57, 255, 0.18);
+        box-shadow: 0 0 0 3px rgba(99, 57, 255, 0);
+    }
+}
+
+.bib-healed:hover {
+    background: rgba(99, 57, 255, 0.28);
+    animation: none;
+}
+
+.bib-healed.doi-added {
+    border-bottom-color: rgba(47, 191, 113, 0.7);
+    background: rgba(47, 191, 113, 0.08);
+    animation: bib-doi-pulse 3s ease-in-out infinite;
+}
+
+@keyframes bib-doi-pulse {
+    0%, 100% { background: rgba(47, 191, 113, 0.06); }
+    50%       { background: rgba(47, 191, 113, 0.16); }
+}
+
+/* Pane badge variant for the healed bibliographic pane */
+.pane-badge.healed {
+    background: linear-gradient(135deg, rgba(99, 57, 255, 0.25) 0%, rgba(168, 85, 247, 0.2) 100%);
+    color: #c4b0ff;
+    border-color: rgba(99, 57, 255, 0.4);
+    animation: badge-glow 2.5s ease-in-out infinite alternate;
+}
+
+@keyframes badge-glow {
+    from { box-shadow: 0 0 6px rgba(99, 57, 255, 0.3); }
+    to   { box-shadow: 0 0 12px rgba(168, 85, 247, 0.5); }
+}
+
+/* Synchronized scroll indicator line between panes */
+.scroll-sync-line {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(180deg, transparent 0%, rgba(99, 57, 255, 0.3) 30%, rgba(168, 85, 247, 0.2) 70%, transparent 100%);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.split-canvas-container.syncing .scroll-sync-line {
+    opacity: 1;
+    animation: sync-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes sync-pulse {
+    from { opacity: 0.4; }
+    to   { opacity: 1.0; }
+}
+
+/* Reference number chip inside healed pane */
+.ref-num-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-family: 'Outfit', monospace;
+    font-size: 10px;
+    font-weight: 800;
+    background: rgba(99, 57, 255, 0.25);
+    color: #b0a0ff;
+    border: 1px solid rgba(99, 57, 255, 0.35);
+    margin-right: 5px;
+    vertical-align: middle;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.ref-num-chip:hover {
+    background: rgba(99, 57, 255, 0.4);
+    color: #d0c0ff;
+}
+
+/* Responsive — collapse to single-pane on narrow screens */
+@media (max-width: 900px) {
+    .split-canvas-container {
+        grid-template-columns: 1fr;
+    }
+
+    .pane-right {
+        display: none;
+    }
+
+    .floating-glass-controls {
+        position: static;
+        width: 100%;
+        max-height: none;
+        border-radius: 8px;
+        margin-top: 12px;
+    }
+
+    .heal-bib-bar {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+}
 

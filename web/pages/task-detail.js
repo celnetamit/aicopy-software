@@ -70,6 +70,15 @@
         if (dom.clearBtn) {
             dom.clearBtn.addEventListener('click', () => getActions().clear_all && getActions().clear_all());
         }
+        // Heal Bibliography — triggered from split-canvas compare view
+        const healBtn = document.getElementById('heal-bib-trigger');
+        if (healBtn) {
+            healBtn.addEventListener('click', () => {
+                if (root.healBibliography && typeof root.healBibliography.triggerHeal === 'function') {
+                    root.healBibliography.triggerHeal();
+                }
+            });
+        }
     }
 
     function bindPreviewControls() {

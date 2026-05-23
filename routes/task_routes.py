@@ -408,3 +408,119 @@ def register_task_routes(app, deps):
                 status=404,
                 session_id=context.session_id,
             )
+
+    @app.post("/api/tasks/<task_id>/heal-bibliography")
+    @deps.require_auth
+    def api_tasks_heal_bibliography(task_id: str):
+        """Autonomous Bibliography-Healing Engine: enrich, validate, and reformat all references in the task."""
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        options = payload.get("options", {})
+        if not isinstance(options, dict):
+            options = {}
+        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+
+        task, error = deps.get_owned_task_or_error(context, task_id)
+        if error is not None:
+            return error
+
+        deps.increment_runtime_counter(context.session_id, "heal_bibliography_requests")
+
+        deps.store.update_task_status(
+            task_id=task_id,
+            status="PROCESSING",
+            user_id=context.user_id,
+            is_admin=context.role == deps.role_admin,
+        )
+        task_run = deps.store.create_task_run(
+            task_id=task_id,
+            user_id=str(task.get("user_id") or context.user_id),
+            status="PENDING",
+            options=options,
+        )
+        task_run_id = str(task_run.get("id") or "")
+        deps.record_audit(
+            event_type="heal_bibliography_queued",
+            actor_user_id=context.user_id,
+            entity_type="task",
+            entity_id=task_id,
+            metadata={"task_run_id": task_run_id},
+        )
+
+        def run_healing_job():
+            deps.store.update_task_run(
+                run_id=task_run_id,
+                user_id=str(task.get("user_id") or context.user_id),
+                is_admin=context.role == deps.role_admin,
+                status="RUNNING",
+            )
+            try:
+                result = deps.heal_bibliography_task(context, task, options)
+                deps.store.update_task_run(
+                    run_id=task_run_id,
+                    user_id=str(task.get("user_id") or context.user_id),
+                    is_admin=context.role == deps.role_admin,
+                    status="SUCCEEDED",
+                    result=result,
+                )
+                deps.increment_runtime_counter(context.session_id, "heal_bibliography_succeeded")
+                deps.record_audit(
+                    event_type="heal_bibliography_succeeded",
+                    actor_user_id=context.user_id,
+                    entity_type="task_run",
+                    entity_id=task_run_id,
+                    metadata={"task_id": task_id},
+                )
+                return result
+            except Exception as exc:
+                deps.store.update_task_status(
+                    task_id=task_id,
+                    status="FAILED",
+                    user_id=context.user_id,
+                    is_admin=context.role == deps.role_admin,
+                )
+                deps.store.update_task_run(
+                    run_id=task_run_id,
+                    user_id=str(task.get("user_id") or context.user_id),
+                    is_admin=context.role == deps.role_admin,
+                    status="FAILED",
+                    error=str(exc),
+                )
+                deps.increment_runtime_counter(context.session_id, "heal_bibliography_failed")
+                deps.record_audit(
+                    event_type="heal_bibliography_failed",
+                    actor_user_id=context.user_id,
+                    entity_type="task_run",
+                    entity_id=task_run_id,
+                    metadata={"task_id": task_id, "error": str(exc)},
+                )
+                raise
+
+        job = deps.processing_job_queue.submit(
+            task_id=task_id,
+            owner_user_id=str(task.get("user_id") or context.user_id),
+            callback=run_healing_job,
+        )
+        deps.store.update_task_run(
+            run_id=task_run_id,
+            user_id=str(task.get("user_id") or context.user_id),
+            is_admin=context.role == deps.role_admin,
+            job_id=str(job.get("id") or ""),
+        )
+
+        return deps.json_response(
+            {
+                "success": True,
+                "queued": True,
+                "task_id": task_id,
+                "job": job,
+                "task_run": deps.store.get_task_run_for_user(
+                    run_id=task_run_id,
+                    user_id=context.user_id,
+                    is_admin=context.role == deps.role_admin,
+                ),
+            },
+            status=202,
+            session_id=context.session_id,
+        )
+

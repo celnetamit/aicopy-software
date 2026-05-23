@@ -289,11 +289,10 @@ class ChicagoEditor:
 
     def _publish_online_lookup_metrics(self):
         """Publish this run's lookup metrics to process-shared diagnostics state."""
-        shared = self._default_online_lookup_metrics()
-        for key, value in (self._online_lookup_metrics or {}).items():
-            shared[key] = int(value or 0)
         with self._online_lookup_metrics_lock:
-            self.__class__._SHARED_ONLINE_LOOKUP_METRICS = dict(shared)
+            for key, value in (self._online_lookup_metrics or {}).items():
+                current = int(self.__class__._SHARED_ONLINE_LOOKUP_METRICS.get(key, 0) or 0)
+                self.__class__._SHARED_ONLINE_LOOKUP_METRICS[key] = current + int(value or 0)
             self.__class__._SHARED_ONLINE_LOOKUP_METRICS_UPDATED_AT = int(time.time())
 
     def get_online_validation_diagnostics(self) -> Dict[str, Any]:
@@ -3533,8 +3532,16 @@ class ChicagoEditor:
                 year = str(date_parts[0][0])
         authors = item.get("author")
         first_author = ""
-        if isinstance(authors, list) and authors and isinstance(authors[0], dict):
-            first_author = str(authors[0].get("family") or authors[0].get("name") or "").strip()
+        authors_list = []
+        if isinstance(authors, list):
+            if authors and isinstance(authors[0], dict):
+                first_author = str(authors[0].get("family") or authors[0].get("name") or "").strip()
+            for a in authors:
+                if isinstance(a, dict):
+                    family = str(a.get("family") or a.get("name") or "").strip()
+                    given = str(a.get("given") or "").strip()
+                    if family:
+                        authors_list.append({"family": family, "given": given})
         editors = item.get("editor")
         editor_name = ""
         if isinstance(editors, list) and editors and isinstance(editors[0], dict):
@@ -3563,6 +3570,7 @@ class ChicagoEditor:
             "doi": str(item.get("DOI") or "").strip(),
             "source_url": str(item.get("URL") or "").strip(),
             "first_author": first_author,
+            "authors_list": authors_list,
             "reference_type": reference_type,
         }
 
@@ -3574,9 +3582,21 @@ class ChicagoEditor:
         source = location.get("source") if isinstance(location.get("source"), dict) else {}
         authorships = item.get("authorships")
         first_author = ""
-        if isinstance(authorships, list) and authorships and isinstance(authorships[0], dict):
-            author = authorships[0].get("author") if isinstance(authorships[0].get("author"), dict) else {}
-            first_author = str(author.get("display_name") or "").strip()
+        authors_list = []
+        if isinstance(authorships, list):
+            for idx, a in enumerate(authorships):
+                if isinstance(a, dict):
+                    author = a.get("author")
+                    if isinstance(author, dict):
+                        name = str(author.get("display_name") or "").strip()
+                        if name:
+                            if idx == 0:
+                                first_author = name
+                            parts = name.split(' ', 1)
+                            if len(parts) == 2:
+                                authors_list.append({"family": parts[1], "given": parts[0]})
+                            else:
+                                authors_list.append({"family": name, "given": ""})
         biblio = item.get("biblio") if isinstance(item.get("biblio"), dict) else {}
         doi = str(item.get("doi") or "").strip()
         doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
@@ -3593,6 +3613,7 @@ class ChicagoEditor:
             "doi": doi.strip(),
             "source_url": str(item.get("id") or "").strip(),
             "first_author": first_author,
+            "authors_list": authors_list,
             "reference_type": "journal",
         }
 
@@ -3656,6 +3677,7 @@ class ChicagoEditor:
             "source_url": str(candidate.get("source_url") or ""),
             "matched_first_author": str(candidate.get("first_author") or ""),
             "matched_source_type": str(candidate.get("reference_type") or ""),
+            "authors_list": candidate.get("authors_list", []),
         }
 
     def _extract_reference_first_author(self, author_block: str) -> str:
@@ -3796,3 +3818,188 @@ class ChicagoEditor:
             "protected_terms": int(self.last_protected_domain_terms),
             "custom_terms": int(self.last_custom_terms_count),
         }
+
+    def _format_healed_reference(self, best_match: Dict[str, Any], original_metadata: Dict[str, Any], profile: Dict[str, Any]) -> str:
+        """Format the matched online metadata into a premium, styled bibliography entry."""
+        # 1. Format authors list
+        authors_list = best_match.get("authors_list") or []
+        formatted_authors = []
+        for auth in authors_list:
+            family = str(auth.get("family") or "").strip()
+            given = str(auth.get("given") or "").strip()
+            if not family:
+                continue
+            given_clean = re.sub(r'[^A-Za-z\s]', '', given)
+            given_words = [w for w in given_clean.split() if w]
+            initials = []
+            for w in given_words:
+                if len(w) == 1:
+                    initials.append(w.upper())
+                elif w.isupper() and len(w) <= 4:
+                    initials.extend(list(w))
+                elif w:
+                    initials.append(w[0].upper())
+            
+            if bool(profile.get("initials_with_periods")):
+                initial_text = "".join(f"{letter}." for letter in initials)
+            else:
+                initial_text = "".join(initials)
+            
+            if initial_text:
+                formatted_authors.append(f"{family} {initial_text}")
+            else:
+                formatted_authors.append(family)
+        
+        if formatted_authors:
+            if len(formatted_authors) > 6:
+                authors_norm = ", ".join(formatted_authors[:6]) + ", et al"
+            else:
+                authors_norm = ", ".join(formatted_authors)
+        else:
+            authors_norm = self._normalize_author_block(str(original_metadata.get("authors") or ""), profile)
+
+        # 2. Format title
+        matched_title = best_match.get("matched_title") or best_match.get("title")
+        if matched_title:
+            title_norm = self._format_reference_title(matched_title, profile)
+        else:
+            title_norm = self._format_reference_title(str(original_metadata.get("title") or ""), profile)
+
+        # 3. Format journal or book tail details
+        ref_type = best_match.get("matched_source_type") or best_match.get("reference_type") or original_metadata.get("source_type") or "journal"
+        journal_or_book = ""
+        
+        if ref_type == "journal" or ref_type == "proceedings":
+            matched_journal = best_match.get("matched_journal") or best_match.get("journal")
+            if matched_journal:
+                journal_norm = self._format_reference_journal(matched_journal, profile)
+            else:
+                journal_norm = self._format_reference_journal(str(original_metadata.get("journal") or ""), profile)
+            
+            year = best_match.get("matched_year") or original_metadata.get("year")
+            volume = best_match.get("matched_volume") or original_metadata.get("volume")
+            issue = best_match.get("matched_issue") or original_metadata.get("issue")
+            pages = best_match.get("matched_pages") or original_metadata.get("pages")
+            
+            tail = ""
+            if year:
+                tail += str(year).strip()
+            if volume:
+                tail += f";{str(volume).strip()}"
+                if issue:
+                    tail += f"({str(issue).strip()})"
+            if pages:
+                if volume or issue:
+                    tail += f":{str(pages).strip()}"
+                else:
+                    tail += f"; {str(pages).strip()}"
+            
+            if journal_norm and tail:
+                journal_or_book = f"{journal_norm.rstrip('.')}. {tail}"
+            elif journal_norm:
+                journal_or_book = journal_norm
+            else:
+                journal_or_book = tail
+                
+        elif ref_type == "book" or ref_type == "chapter":
+            place = best_match.get("matched_place") or original_metadata.get("place")
+            publisher = best_match.get("matched_publisher") or original_metadata.get("publisher")
+            year = best_match.get("matched_year") or original_metadata.get("year")
+            
+            tail = ""
+            if place and publisher:
+                tail += f"{str(place).strip()}: {str(publisher).strip()}"
+            elif publisher:
+                tail += str(publisher).strip()
+            if year:
+                if tail:
+                    tail += f"; {str(year).strip()}"
+                else:
+                    tail += str(year).strip()
+            
+            journal_or_book = tail
+        else:
+            journal_or_book = str(original_metadata.get("tail") or "")
+
+        pieces = [p.rstrip(".") for p in [authors_norm, title_norm, journal_or_book] if p]
+        healed_entry = ". ".join(pieces).strip()
+        
+        matched_doi = best_match.get("matched_doi") or best_match.get("doi")
+        if matched_doi:
+            healed_entry += f". doi:{str(matched_doi).strip()}"
+            
+        healed_entry = re.sub(r'\s+', ' ', healed_entry).strip()
+        return healed_entry
+
+    def heal_bibliography(self, text: str, options: Optional[Dict] = None, progress_callback: Optional[Callable] = None) -> str:
+        """Autonomous Bibliography Healing: correct authors, verify DOIs, insert publisher, and fix citation order formatting."""
+        profile = self.resolve_journal_profile(options or {})
+        extracted = self._extract_reference_numbered_entries(text or "")
+        healed_entries_by_number: Dict[int, str] = {}
+        
+        lookup_options = dict(options or {})
+        lookup_options["online_reference_validation"] = True
+        lookup_options["online_reference_serper_fallback"] = True
+        
+        total = len(extracted)
+        for idx, item in enumerate(extracted):
+            number = int(item.get("number") or 0)
+            entry = str(item.get("entry") or "").strip()
+            if progress_callback:
+                progress_callback(20.0 + (float(idx) / max(1, total)) * 60.0, f"Healing reference [{number}] ({idx+1}/{total})...")
+            if not entry:
+                continue
+            
+            orig_metadata = self._analyze_reference_entry(entry)
+            result = self._validate_reference_online(number, entry, orig_metadata, allow_serper=True, options=lookup_options)
+            status = str(result.get("status") or "error")
+            
+            if status in {"verified", "likely_match"}:
+                healed_entry = self._format_healed_reference(result, orig_metadata, profile)
+                healed_entries_by_number[number] = healed_entry
+            else:
+                healed_entry = self._normalize_reference_entry(entry, profile)
+                healed_entries_by_number[number] = healed_entry or entry
+
+        if progress_callback:
+            progress_callback(85.0, "Resolving citation order & renumbering bibliography...")
+
+        renumber_map, ordered_entries = self._build_vancouver_renumber_plan(text)
+        
+        lines = text.split('\n')
+        output: List[str] = []
+        in_references = False
+        emitted_references = False
+        
+        heading_re = re.compile(r'^\s*references?\s*:?\s*$', flags=re.IGNORECASE)
+        section_break_re = re.compile(
+            r'^\s*(?:appendix|acknowledg(?:e)?ments?|funding|conflicts?\s+of\s+interest|author\s+contributions?)\s*:?\s*$',
+            flags=re.IGNORECASE
+        )
+        
+        for line in lines:
+            if heading_re.match(line):
+                in_references = True
+                output.append("References")
+                if not emitted_references:
+                    for new_number, item in enumerate(ordered_entries, start=1):
+                        old_number = int(item.get("number") or 0)
+                        healed_entry = healed_entries_by_number.get(old_number)
+                        if not healed_entry:
+                            healed_entry = self._normalize_reference_entry(str(item.get("entry") or ""), profile) or str(item.get("entry") or "").strip()
+                        output.append(f'[{new_number}] {healed_entry}')
+                    emitted_references = True
+                continue
+                
+            if in_references and section_break_re.match(line):
+                in_references = False
+                output.append(line)
+                continue
+                
+            if not in_references:
+                output.append(self._renumber_citation_blocks(line, renumber_map))
+                continue
+                
+            continue
+            
+        return '\n'.join(output)

@@ -48,6 +48,7 @@ REQUIRED_WEB_ASSETS = (
     "app.js",
     "app-assistant.js",
     "app-settings-panel.js",
+    "app-heal-bibliography.js",
     "admin/runtime.js",
     "admin/audit.js",
     "admin/users.js",
@@ -1148,6 +1149,17 @@ def _upload_docx_to_task(context: SessionContext, file_name: str, byte_data: byt
 def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     _increment_runtime_counter(context.session_id, "process_runs_started")
     processor = DocumentProcessor()
+    task_id = str(task.get("id") or "")
+    def progress_callback(progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
+        if task_id:
+            _PROCESSING_JOB_QUEUE.update_progress(
+                task_id=task_id,
+                progress_percent=progress_percent,
+                stage=stage,
+                tokens_consumed=tokens_consumed,
+                estimated_seconds_remaining=estimated_seconds_remaining
+            )
+    processor.set_progress_callback(progress_callback)
     original_text = str(task.get("original_text") or "")
     processing_source_text = original_text
     safe_options = dict(options or {})
@@ -1229,6 +1241,81 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
             count = 0
         for _ in range(count):
             _increment_runtime_bucket(context.session_id, "fallback_reason_counts", str(reason_key or "unknown"))
+
+    return process_payload
+
+
+def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+    _increment_runtime_counter(context.session_id, "heal_bibliography_started")
+    processor = DocumentProcessor()
+    task_id = str(task.get("id") or "")
+    def progress_callback(progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
+        if task_id:
+            _PROCESSING_JOB_QUEUE.update_progress(
+                task_id=task_id,
+                progress_percent=progress_percent,
+                stage=stage,
+                tokens_consumed=tokens_consumed,
+                estimated_seconds_remaining=estimated_seconds_remaining
+            )
+    processor.set_progress_callback(progress_callback)
+
+    source_text = (
+        str(task.get("full_corrected_text") or "")
+        or str(task.get("corrected_text") or "")
+        or str(task.get("original_text") or "")
+    )
+
+    progress_callback(10.0, "Initializing Bibliography Healing Engine...")
+
+    healed_text = processor.editor.heal_bibliography(source_text, options, progress_callback=progress_callback)
+
+    progress_callback(90.0, "Updating document metadata & reports...")
+
+    process_payload = _build_process_payload(
+        processor=processor,
+        task_row=task,
+        corrected_text=healed_text,
+        full_corrected_text=healed_text,
+        options=options,
+    )
+
+    reports = _extract_reports_from_process_payload(process_payload)
+
+    reports["healing_audit"] = {
+        "status": "healed",
+        "timestamp": int(time.time()),
+        "original_length": len(source_text),
+        "healed_length": len(healed_text)
+    }
+
+    updated = _STORE.update_task_processing_result(
+        task_id=task_id,
+        user_id=context.user_id,
+        corrected_text=healed_text,
+        full_corrected_text=healed_text,
+        word_count=process_payload["word_count"],
+        options=options,
+        reports=reports,
+    )
+    if updated is None:
+        raise RuntimeError("Task update failed during healing")
+
+    _store_task_export_files(updated, original_text=str(task.get("original_text") or ""), corrected_text=healed_text)
+
+    _record_audit(
+        event_type="task_healed",
+        actor_user_id=context.user_id,
+        entity_type="task",
+        entity_id=task_id,
+        metadata={
+            "word_count": process_payload["word_count"],
+            "original_length": len(source_text),
+            "healed_length": len(healed_text)
+        },
+    )
+
+    _increment_runtime_counter(context.session_id, "heal_bibliography_succeeded")
 
     return process_payload
 
@@ -1942,6 +2029,7 @@ def _build_route_dependencies():
         normalize_global_runtime_settings=_normalize_global_runtime_settings,
         processing_job_queue=_PROCESSING_JOB_QUEUE,
         process_task=_process_task,
+        heal_bibliography_task=_heal_bibliography_task,
         public_user_payload=_public_user_payload,
         read_global_runtime_settings=_read_global_runtime_settings,
         read_json_payload=_read_json_payload,
