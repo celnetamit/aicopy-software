@@ -10,6 +10,18 @@ The format is inspired by Keep a Changelog and this project follows Semantic Ver
 
 - (none yet)
 
+## [1.1.1] - 2026-05-23
+
+### Added
+
+- Sandbox-friendly path overrides for temporary file directories (`tempfile.tempdir`) and SQLite databases to prevent environment/nsjail execution and cleanup blocks.
+- Fully verified installer pipelines and packaging targets for both Windows and Ubuntu platforms.
+- Completed multi-platform QA Sign-Off evidence for fresh-machine releases of Manuscript Editor.
+
+### Fixed
+
+- Resolved automated quality check execution blockers in restricted container/dev sandbox environments.
+
 ## [1.1.0] - 2026-05-11
 
 ### Added

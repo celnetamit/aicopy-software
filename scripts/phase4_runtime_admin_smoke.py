@@ -12,10 +12,15 @@ from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
 
 
-os.environ.setdefault("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "1")
-os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/manuscript_editor_smoke.sqlite3")
-os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import tempfile
+local_tmp = os.path.join(ROOT_DIR, "data", "tmp")
+os.makedirs(local_tmp, exist_ok=True)
+tempfile.tempdir = local_tmp
+
+os.environ.setdefault("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "1")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{os.path.join(ROOT_DIR, 'data', 'manuscript_editor_smoke.sqlite3')}")
+os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

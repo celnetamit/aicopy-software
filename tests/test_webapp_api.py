@@ -17,8 +17,13 @@ from docx import Document
 from chicago_editor import ChicagoEditor
 
 
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+local_tmp = os.path.join(ROOT_DIR, "data", "tmp")
+os.makedirs(local_tmp, exist_ok=True)
+tempfile.tempdir = local_tmp
+
 os.environ.setdefault("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "1")
-os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/manuscript_editor_test.sqlite3")
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{os.path.join(ROOT_DIR, 'data', 'manuscript_editor_test.sqlite3')}")
 os.environ.setdefault("GOOGLE_CLIENT_ID", "test-google-client-id")
 
 import webapp  # noqa: E402
