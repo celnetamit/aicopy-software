@@ -58,6 +58,9 @@
         if (dom.processBtn) {
             dom.processBtn.addEventListener('click', () => getActions().process_document && getActions().process_document());
         }
+        if (dom.autopilotBtn) {
+            dom.autopilotBtn.addEventListener('click', () => getActions().trigger_autopilot && getActions().trigger_autopilot());
+        }
         if (dom.rerunUnresolvedBtn) {
             dom.rerunUnresolvedBtn.addEventListener('click', () => getActions().rerunUnresolvedReferencesOnly && getActions().rerunUnresolvedReferencesOnly());
         }

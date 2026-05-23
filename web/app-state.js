@@ -229,6 +229,7 @@ app.dom = {
     fileInput: document.getElementById('file-input'),
     browseFileBtn: document.getElementById('browse-file-btn'),
     processBtn: document.getElementById('process-btn'),
+    autopilotBtn: document.getElementById('autopilot-btn'),
     rerunUnresolvedBtn: document.getElementById('rerun-unresolved-btn'),
     saveCleanBtn: document.getElementById('save-clean-btn'),
     saveHighlightBtn: document.getElementById('save-highlight-btn'),

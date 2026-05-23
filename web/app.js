@@ -84,6 +84,10 @@ function refreshProcessButtonState() {
     if (mainDom.processBtn) {
         mainDom.processBtn.disabled = !canProcess;
     }
+    if (mainDom.autopilotBtn) {
+        const hasTask = !!String(mainState.fileContent.taskId || '').trim();
+        mainDom.autopilotBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !hasTask;
+    }
     if (mainDom.rerunUnresolvedBtn) {
         const hasTask = !!String(mainState.fileContent.taskId || '').trim();
         mainDom.rerunUnresolvedBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !hasTask;
@@ -750,6 +754,68 @@ function process_document() {
     }
 }
 
+function trigger_autopilot() {
+    if (mainState.isFileLoading) {
+        setStatus('File is still loading. Please wait before running Autopilot.', 'warning');
+        refreshProcessButtonState();
+        return;
+    }
+    const taskId = String(mainState.fileContent.taskId || '').trim();
+    if (!taskId) {
+        alert('Please open or upload a task before running Autopilot.');
+        return;
+    }
+
+    mainState.isProcessingDocument = true;
+    clearServerTaskTracking();
+    setStatus('Autopilot queued...', 'warning');
+    setProgress(25);
+    startProcessingPresence();
+    if (mainDom.processingMessage) {
+        mainDom.processingMessage.textContent = 'Preparing autonomous pipeline...';
+    }
+    refreshProcessButtonState();
+
+    const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
+    options.automation = {
+        auto_heal_bibliography: true,
+        heal_when_reference_issues_at_least: 1
+    };
+    const processProviderModel = getProviderModelFromOptions(options);
+    mainSettings.saveAiSettings();
+
+    const called = callApiOrEel(
+        (api) => (api.tasks && typeof api.tasks.autopilot === 'function')
+            ? api.tasks.autopilot(taskId, options)
+            : null,
+        '',
+        [],
+        function (response) {
+            if (response && response.success && response.queued) {
+                mainState.taskRecoveryStartedAt = Date.now();
+                mainState.taskRecoveryPollCount = 0;
+                callAssistantModuleAction('applyProcessingModeProviderContext', processProviderModel.provider, processProviderModel.model);
+                showAssistantToast('Autopilot queued. Tracking progress...');
+                startServerTaskTracking(taskId, 'Autopilot queued. Tracking server progress...');
+                return;
+            }
+
+            mainState.isProcessingDocument = false;
+            stopProcessingPresence();
+            const errorText = String((response && response.error) || 'Autopilot is unavailable in this mode.');
+            setStatus('Autopilot failed: ' + errorText, 'error');
+            alert('Autopilot error: ' + errorText);
+            refreshProcessButtonState();
+        }
+    );
+    if (!called) {
+        mainState.isProcessingDocument = false;
+        stopProcessingPresence();
+        setStatus('Autopilot bridge unavailable', 'error');
+        refreshProcessButtonState();
+    }
+}
+
 function applyCurrentGroupDecisions() {
     if (mainState.isApplyingGroupDecisions) {
         mainState.pendingGroupDecisionApply = true;
@@ -969,6 +1035,7 @@ appMain.actions = {
     applyProcessResponseToState,
     pollTaskUntilProcessed,
     process_document,
+    trigger_autopilot,
     applyCurrentGroupDecisions,
     askAssistantQuestion: assistantAction('askAssistantQuestion'),
     askAssistantQuickPrompt: assistantAction('askAssistantQuickPrompt'),
