@@ -2917,3 +2917,71 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     pointer-events: none;
 }
 
+/* Glassmorphic WYSIWYG Floating Selection Toolbar */
+.wysiwyg-floating-toolbar {
+    position: absolute;
+    background: rgba(13, 13, 30, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.wysiwyg-floating-toolbar.hidden {
+    display: none !important;
+}
+
+.wysiwyg-btn {
+    background: transparent;
+    border: none;
+    color: #e5efff;
+    padding: 6px 10px;
+    font-size: 13px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wysiwyg-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #9fc4ff;
+    transform: translateY(-1px);
+}
+
+.wysiwyg-btn.active {
+    background: rgba(159, 196, 255, 0.2);
+    color: #9fc4ff;
+}
+
+.wysiwyg-btn.highlight {
+    color: #ffd54f;
+}
+
+.wysiwyg-separator {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.15);
+    margin: 0 4px;
+}
+
+.pane-content[contenteditable="true"] {
+    outline: none;
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.pane-content[contenteditable="true"]:focus {
+    border-color: rgba(159, 196, 255, 0.4);
+    box-shadow: 0 0 15px rgba(159, 196, 255, 0.1) inset;
+}
+
+

@@ -1205,7 +1205,145 @@ function initializeInteractiveSplitCanvas() {
             tooltip.classList.add('hidden');
         }, 300);
     });
+
+    // --- Premium Glassmorphic WYSIWYG selection-sensitive toolbar ---
+    let wysiwygToolbar = document.getElementById('wysiwyg-floating-toolbar');
+    if (!wysiwygToolbar) {
+        wysiwygToolbar = document.createElement('div');
+        wysiwygToolbar.id = 'wysiwyg-floating-toolbar';
+        wysiwygToolbar.className = 'wysiwyg-floating-toolbar hidden';
+        wysiwygToolbar.innerHTML = `
+            <button class="wysiwyg-btn" data-command="bold" title="Bold"><i class="fas fa-bold"></i></button>
+            <button class="wysiwyg-btn" data-command="italic" title="Italic"><i class="fas fa-italic"></i></button>
+            <button class="wysiwyg-btn" data-command="underline" title="Underline"><i class="fas fa-underline"></i></button>
+            <button class="wysiwyg-btn" data-command="strikeThrough" title="Strikethrough"><i class="fas fa-strikethrough"></i></button>
+            <div class="wysiwyg-separator"></div>
+            <button class="wysiwyg-btn highlight" data-command="hiliteColor" data-value="#ffd54f" title="Highlight Selection"><i class="fas fa-highlighter"></i></button>
+            <button class="wysiwyg-btn" id="wysiwyg-add-custom-note" title="Add Custom Comment"><i class="fas fa-comment-medical"></i></button>
+        `;
+        document.body.appendChild(wysiwygToolbar);
+
+        // Bind event listeners for actions
+        wysiwygToolbar.querySelectorAll('.wysiwyg-btn').forEach(btn => {
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // Don't lose focus / selection
+                const command = btn.getAttribute('data-command');
+                const value = btn.getAttribute('data-value') || null;
+                if (command) {
+                    document.execCommand(command, false, value);
+                    // Trigger input event to update state
+                    rightPane.dispatchEvent(new Event('input'));
+                    updateToolbarButtonStates();
+                }
+            });
+        });
+
+        // Add custom comment note
+        const noteBtn = wysiwygToolbar.querySelector('#wysiwyg-add-custom-note');
+        if (noteBtn) {
+            noteBtn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const noteText = prompt("Enter a CMOS comment or manuscript note for this selection:");
+                if (noteText) {
+                    const selection = window.getSelection();
+                    if (!selection.isCollapsed) {
+                        const range = selection.getRangeAt(0);
+                        const span = document.createElement('span');
+                        span.className = 'cmos-issue';
+                        span.style.background = 'rgba(255, 213, 79, 0.2)';
+                        span.style.borderBottom = '2px dashed #ffd54f';
+                        span.title = noteText;
+                        
+                        try {
+                            range.surroundContents(span);
+                        } catch (err) {
+                            const contents = range.extractContents();
+                            span.appendChild(contents);
+                            range.insertNode(span);
+                        }
+                        
+                        // Sync
+                        rightPane.dispatchEvent(new Event('input'));
+                        
+                        if (window.showToast) {
+                            window.showToast("Comment successfully attached to selection!", "success");
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    function updateToolbarButtonStates() {
+        const commands = ['bold', 'italic', 'underline', 'strikeThrough'];
+        commands.forEach(cmd => {
+            const btn = wysiwygToolbar.querySelector(`[data-command="${cmd}"]`);
+            if (btn) {
+                if (document.queryCommandState(cmd)) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            }
+        });
+    }
+
+    // Bind selection change to position floating toolbar
+    function handleSelectionChange() {
+        const selection = window.getSelection();
+        if (selection.isCollapsed || !rightPane.contains(selection.anchorNode)) {
+            wysiwygToolbar.classList.add('hidden');
+            return;
+        }
+
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+
+        if (rect.width === 0 || rect.height === 0) {
+            wysiwygToolbar.classList.add('hidden');
+            return;
+        }
+
+        // Position toolbar centered above selection
+        wysiwygToolbar.style.left = `${rect.left + window.scrollX + (rect.width / 2) - (wysiwygToolbar.offsetWidth / 2)}px`;
+        wysiwygToolbar.style.top = `${rect.top + window.scrollY - wysiwygToolbar.offsetHeight - 12}px`;
+        wysiwygToolbar.classList.remove('hidden');
+        updateToolbarButtonStates();
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+
+    // Bind input listener to rightPane to sync document changes back to app state in real time
+    rightPane.addEventListener('input', () => {
+        const currentHtml = rightPane.innerHTML;
+        
+        // Save the updated HTML version with inline formatting
+        previewState.fileContent.correctedAnnotatedHtml = currentHtml;
+        
+        // Convert to plain text to sync with previewState.fileContent.corrected
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = currentHtml;
+        const plainText = tempDiv.innerText || tempDiv.textContent || '';
+        previewState.fileContent.corrected = plainText;
+    });
+
+    // Clean up selection listener when element is removed or replaced
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            mutation.removedNodes.forEach((node) => {
+                if (node === rightPane || node.contains(rightPane)) {
+                    document.removeEventListener('selectionchange', handleSelectionChange);
+                    wysiwygToolbar.remove();
+                    observer.disconnect();
+                }
+            });
+        });
+    });
+    if (rightPane.parentNode) {
+        observer.observe(rightPane.parentNode, { childList: true });
+    }
 }
+
 
 function renderCurrentPreview() {
     const preview = document.getElementById('preview-text');
@@ -1265,9 +1403,9 @@ function renderCurrentPreview() {
                 <div class="split-pane pane-right">
                     <div class="pane-header glassmorphic">
                         <span class="pane-title">Interactive Corrected & Redline</span>
-                        <div class="pane-badge success">Redline Diffs</div>
+                        <div class="pane-badge success">WYSIWYG Editor</div>
                     </div>
-                    <div class="pane-content scroll-syncable" id="pane-right-content">
+                    <div class="pane-content scroll-syncable" id="pane-right-content" contenteditable="true" spellcheck="false">
                         ${redlineHtml}
                     </div>
                 </div>
