@@ -485,6 +485,28 @@
                                 </label>
                             </div>
                         </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-auto-heal-bibliography">Autopilot Healing</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-autopilot-auto-heal-bibliography" checked>
+                                    <span>Enable bibliography auto-heal in Autopilot</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-heal-threshold">Autopilot Heal Threshold</label>
+                            <input
+                                id="admin-setting-autopilot-heal-threshold"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="200"
+                                step="1"
+                                value="1"
+                                placeholder="Min reference issues before auto-heal"
+                            />
+                        </div>
 
                         <div class="admin-settings-row">
                             <label class="field-label admin-row-label" for="admin-setting-domain-profile">Domain Profile</label>

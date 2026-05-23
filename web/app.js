@@ -777,10 +777,12 @@ function trigger_autopilot() {
     refreshProcessButtonState();
 
     const options = mainAuth.buildProcessingOptionsFromRuntimeSettings();
-    options.automation = {
-        auto_heal_bibliography: true,
-        heal_when_reference_issues_at_least: 1
-    };
+    if (!options.automation || typeof options.automation !== 'object') {
+        options.automation = {
+            auto_heal_bibliography: true,
+            heal_when_reference_issues_at_least: 1
+        };
+    }
     const processProviderModel = getProviderModelFromOptions(options);
     mainSettings.saveAiSettings();
 

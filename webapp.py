@@ -456,6 +456,8 @@ def _default_global_runtime_settings() -> Dict:
             "online_reference_serper_fallback": True,
             "online_reference_validation_admin_cap": 150,
             "auto_resolve_unresolved_references": True,
+            "autopilot_auto_heal_bibliography": True,
+            "autopilot_heal_when_reference_issues_at_least": 1,
             "doi_insertion_mode": "balanced",
             "domain_profile": "auto",
             "cmos_profile": "strict",
@@ -587,6 +589,18 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
                 "auto_resolve_unresolved_references",
                 defaults["editing"]["auto_resolve_unresolved_references"],
             ),
+            "autopilot_auto_heal_bibliography": _bool(
+                editing_in,
+                "autopilot_auto_heal_bibliography",
+                defaults["editing"]["autopilot_auto_heal_bibliography"],
+            ),
+            "autopilot_heal_when_reference_issues_at_least": _int(
+                editing_in,
+                "autopilot_heal_when_reference_issues_at_least",
+                defaults["editing"]["autopilot_heal_when_reference_issues_at_least"],
+                0,
+                200,
+            ),
             "doi_insertion_mode": doi_mode,
             "domain_profile": domain,
             "cmos_profile": cmos_profile,
@@ -678,6 +692,10 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
     opts["online_reference_serper_fallback"] = bool(editing.get("online_reference_serper_fallback", True))
     opts["online_reference_validation_admin_cap"] = int(editing.get("online_reference_validation_admin_cap", 150))
     opts["auto_resolve_unresolved_references"] = bool(editing.get("auto_resolve_unresolved_references", True))
+    opts["automation"] = {
+        "auto_heal_bibliography": bool(editing.get("autopilot_auto_heal_bibliography", True)),
+        "heal_when_reference_issues_at_least": int(editing.get("autopilot_heal_when_reference_issues_at_least", 1)),
+    }
     opts["doi_insertion_mode"] = str(editing.get("doi_insertion_mode", "balanced"))
     opts["domain_profile"] = str(editing.get("domain_profile", "auto"))
     opts["editing_mode"] = str(editing.get("editing_mode", "copyedit"))
@@ -1608,6 +1626,14 @@ def _read_task_download_payload(context: SessionContext, task_id: str, file_type
         metadata={"file_type": normalized_type},
     )
 
+    task = _STORE.get_task_for_user(
+        task_id=task_id,
+        user_id=context.user_id,
+        is_admin=context.role == ROLE_ADMIN,
+    ) or {}
+    reports = task.get("reports") if isinstance(task.get("reports"), dict) else {}
+    autopilot_audit = reports.get("autopilot_audit") if isinstance(reports.get("autopilot_audit"), dict) else {}
+
     return {
         "success": True,
         "task_id": task_id,
@@ -1615,6 +1641,8 @@ def _read_task_download_payload(context: SessionContext, task_id: str, file_type
         "file_name": str(file_row.get("download_name") or _build_download_filename("manuscript", normalized_type)),
         "mime_type": str(file_row.get("mime_type") or MIME_DOCX),
         "base64_data": encoded,
+        "task_diagnostics": _task_diagnostics_snapshot(task) if isinstance(task, dict) and task else {},
+        "autopilot_audit": autopilot_audit,
     }
 
 
@@ -1629,6 +1657,7 @@ def _task_diagnostics_snapshot(task: Dict) -> Dict:
     enrichment_trail = enrichment.get("trail") if isinstance(enrichment.get("trail"), list) else []
     processing_note = str(reports.get("processing_note") or "")
     processing_audit = reports.get("processing_audit") if isinstance(reports.get("processing_audit"), dict) else {}
+    autopilot_audit = reports.get("autopilot_audit") if isinstance(reports.get("autopilot_audit"), dict) else {}
     summary = processing_audit.get("summary") if isinstance(processing_audit.get("summary"), dict) else {}
     unresolved_numbers = set()
     for entry in online_entries:
@@ -1656,6 +1685,7 @@ def _task_diagnostics_snapshot(task: Dict) -> Dict:
         "citation_issue_total": int(citation_summary.get("issue_total", 0) or 0),
         "citation_issue_counts": issue_counts,
         "processing_summary": summary,
+        "autopilot_audit": autopilot_audit,
         "reference_issue_total": int(citation_summary.get("reference_issues", 0) or 0),
         "unresolved_reference_count": len(unresolved_numbers),
         "cmos_guardrails": summary.get("cmos_guardrails") if isinstance(summary.get("cmos_guardrails"), dict) else {},
@@ -2033,6 +2063,8 @@ def _build_reference_validation_diagnostics_payload() -> Dict:
             "online_reference_serper_fallback": serper_requested,
             "online_reference_validation_admin_cap": int(editing.get("online_reference_validation_admin_cap", 150) or 150),
             "auto_resolve_unresolved_references": bool(editing.get("auto_resolve_unresolved_references", True)),
+            "autopilot_auto_heal_bibliography": bool(editing.get("autopilot_auto_heal_bibliography", True)),
+            "autopilot_heal_when_reference_issues_at_least": int(editing.get("autopilot_heal_when_reference_issues_at_least", 1) or 1),
         },
         "serper": {
             "configured": serper_configured,

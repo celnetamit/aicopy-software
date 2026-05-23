@@ -6,6 +6,7 @@ import json
 import math
 import os
 import tempfile
+import time
 import unittest
 import zipfile
 from unittest.mock import Mock, patch
@@ -798,6 +799,10 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
         self.assertIn("base64_data", payload)
+        self.assertIn("task_diagnostics", payload)
+        self.assertIsInstance(payload.get("task_diagnostics"), dict)
+        self.assertIn("autopilot_audit", payload)
+        self.assertIsInstance(payload.get("autopilot_audit"), dict)
         exported_bytes = base64.b64decode(payload["base64_data"])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
             output_path = output_handle.name
@@ -903,6 +908,91 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
 
         status_token = str((task_run.get("status") or "")).upper()
         self.assertIn(status_token, {"PENDING", "RUNNING", "SUCCEEDED", "FAILED"})
+
+    @patch("webapp._process_task")
+    def test_autopilot_retries_once_on_transient_failure_and_persists_audit(self, mock_process_task):
+        admin_client = WsgiTestClient(webapp.app)
+        status, payload = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        status, payload = admin_client.request(
+            "POST",
+            "/api/admin/global-settings",
+            {
+                "settings": {
+                    "editing": {
+                        "autopilot_auto_heal_bibliography": False,
+                        "autopilot_heal_when_reference_issues_at_least": 99,
+                    },
+                    "ai": {"enabled": False},
+                }
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "autopilot-retry.txt", "content": "This are sample text."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+        self.assertTrue(task_id)
+
+        attempts = {"count": 0}
+
+        def _mocked_process_task(_context, _task, _options):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise RuntimeError("timeout while contacting provider")
+            return {
+                "success": True,
+                "task_id": task_id,
+                "text": "This is sample text.",
+                "full_corrected_text": "This is sample text.",
+                "word_count": 4,
+                "citation_reference_report": {"issue_count": 0},
+                "processing_audit": {"mode": "rule_only", "summary": {}},
+            }
+
+        mock_process_task.side_effect = _mocked_process_task
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/autopilot",
+            {"options": {"ai": {"enabled": False}}},
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(payload.get("success"))
+        self.assertTrue(payload.get("queued"))
+
+        final_status = ""
+        for _ in range(120):
+            status, status_payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+            self.assertEqual(status, 200)
+            final_status = str(((status_payload.get("task_run") or {}).get("status") or "")).upper()
+            if final_status in {"SUCCEEDED", "FAILED"}:
+                break
+            time.sleep(0.05)
+        self.assertEqual(final_status, "SUCCEEDED")
+        self.assertEqual(attempts["count"], 2)
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        reports = (payload.get("task") or {}).get("reports") or {}
+        autopilot_audit = reports.get("autopilot_audit") if isinstance(reports, dict) else None
+        self.assertIsInstance(autopilot_audit, dict)
+        self.assertEqual(str(autopilot_audit.get("status") or ""), "completed")
+        self.assertFalse(bool(autopilot_audit.get("heal_executed")))
+
+        status, payload = self.client.request("GET", "/api/runtime-telemetry")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        telemetry = payload.get("telemetry") or {}
+        self.assertGreaterEqual(int(telemetry.get("autopilot_retries", 0)), 1)
 
     def test_runtime_telemetry_captures_processing_mode_and_editing_controls(self):
         admin_client = WsgiTestClient(webapp.app)
@@ -1444,6 +1534,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
                 "cmos_strict_mode": True,
                 "online_reference_validation_admin_cap": 220,
                 "auto_resolve_unresolved_references": False,
+                "autopilot_auto_heal_bibliography": False,
+                "autopilot_heal_when_reference_issues_at_least": 7,
                 "domain_profile": "medical",
                 "editing_mode": "tone_adjust",
                 "tone": "formal",
@@ -1484,6 +1576,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(payload.get("settings", {}).get("editing", {}).get("explain_edits"))
         self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(payload.get("settings", {}).get("editing", {}).get("auto_resolve_unresolved_references"))
+        self.assertFalse(payload.get("settings", {}).get("editing", {}).get("autopilot_auto_heal_bibliography"))
+        self.assertEqual(int(payload.get("settings", {}).get("editing", {}).get("autopilot_heal_when_reference_issues_at_least", 0)), 7)
         admin_ai = payload.get("settings", {}).get("ai", {})
         self.assertEqual(float(admin_ai.get("ollama_generate_timeout_seconds", 0)), 35)
         self.assertEqual(float(admin_ai.get("ollama_health_timeout_seconds", 0)), 4)
@@ -1507,6 +1601,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertTrue(user_settings.get("editing", {}).get("explain_edits"))
         self.assertEqual(int(user_settings.get("editing", {}).get("online_reference_validation_admin_cap", 0)), 220)
         self.assertFalse(user_settings.get("editing", {}).get("auto_resolve_unresolved_references"))
+        self.assertFalse(user_settings.get("editing", {}).get("autopilot_auto_heal_bibliography"))
+        self.assertEqual(int(user_settings.get("editing", {}).get("autopilot_heal_when_reference_issues_at_least", 0)), 7)
         user_ai = user_settings.get("ai", {})
         self.assertEqual(float(user_ai.get("ollama_generate_timeout_seconds", 0)), 35)
         self.assertEqual(float(user_ai.get("ollama_health_timeout_seconds", 0)), 4)
@@ -1590,6 +1686,8 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("cache", diagnostics)
         self.assertIn("lookup_metrics_last_run", diagnostics)
         self.assertTrue(bool(diagnostics.get("serper", {}).get("configured")))
+        self.assertIn("autopilot_auto_heal_bibliography", diagnostics.get("global_runtime", {}))
+        self.assertIn("autopilot_heal_when_reference_issues_at_least", diagnostics.get("global_runtime", {}))
         serialized = json.dumps(payload)
         self.assertNotIn("serper-secret-test-key", serialized)
 

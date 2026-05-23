@@ -223,6 +223,17 @@ function applyAdminGlobalSettingsForm(settings) {
     if (adminGlobalDom.adminSettingAutoResolveUnresolvedReferences) {
         adminGlobalDom.adminSettingAutoResolveUnresolvedReferences.checked = editing.auto_resolve_unresolved_references !== false;
     }
+    if (adminGlobalDom.adminSettingAutopilotAutoHealBibliography) {
+        adminGlobalDom.adminSettingAutopilotAutoHealBibliography.checked = editing.autopilot_auto_heal_bibliography !== false;
+    }
+    if (adminGlobalDom.adminSettingAutopilotHealThreshold) {
+        adminGlobalDom.adminSettingAutopilotHealThreshold.value = adminGlobalHelpers.clampInt(
+            editing.autopilot_heal_when_reference_issues_at_least,
+            0,
+            200,
+            1
+        );
+    }
     if (adminGlobalDom.adminSettingDomainProfile) adminGlobalDom.adminSettingDomainProfile.value = String(editing.domain_profile || 'auto');
     if (adminGlobalDom.adminSettingEditingMode) {
         const editingMode = String(editing.editing_mode || 'copyedit');
@@ -294,6 +305,15 @@ function collectAdminGlobalSettingsForm() {
             auto_resolve_unresolved_references: adminGlobalDom.adminSettingAutoResolveUnresolvedReferences
                 ? adminGlobalDom.adminSettingAutoResolveUnresolvedReferences.checked
                 : true,
+            autopilot_auto_heal_bibliography: adminGlobalDom.adminSettingAutopilotAutoHealBibliography
+                ? adminGlobalDom.adminSettingAutopilotAutoHealBibliography.checked
+                : true,
+            autopilot_heal_when_reference_issues_at_least: adminGlobalHelpers.clampInt(
+                adminGlobalDom.adminSettingAutopilotHealThreshold ? adminGlobalDom.adminSettingAutopilotHealThreshold.value : 1,
+                0,
+                200,
+                1
+            ),
             domain_profile: adminGlobalDom.adminSettingDomainProfile ? String(adminGlobalDom.adminSettingDomainProfile.value || 'auto') : 'auto',
             editing_mode: adminGlobalDom.adminSettingEditingMode ? String(adminGlobalDom.adminSettingEditingMode.value || 'copyedit') : 'copyedit',
             tone: adminGlobalDom.adminSettingTone ? String(adminGlobalDom.adminSettingTone.value || 'neutral') : 'neutral',

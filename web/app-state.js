@@ -192,6 +192,8 @@ app.dom = {
     adminSettingDoiInsertionMode: document.getElementById('admin-setting-doi-insertion-mode'),
     adminSettingOnlineReferenceValidationAdminCap: document.getElementById('admin-setting-online-reference-validation-admin-cap'),
     adminSettingAutoResolveUnresolvedReferences: document.getElementById('admin-setting-auto-resolve-unresolved-references'),
+    adminSettingAutopilotAutoHealBibliography: document.getElementById('admin-setting-autopilot-auto-heal-bibliography'),
+    adminSettingAutopilotHealThreshold: document.getElementById('admin-setting-autopilot-heal-threshold'),
     adminSettingDomainProfile: document.getElementById('admin-setting-domain-profile'),
     adminSettingEditingMode: document.getElementById('admin-setting-editing-mode'),
     adminEditingModeHelp: document.getElementById('admin-editing-mode-help'),
