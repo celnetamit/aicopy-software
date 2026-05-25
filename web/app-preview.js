@@ -249,8 +249,10 @@ function applyPageStyleVariables() {
     preview.style.setProperty('--page-font-size-px', `${fontSizePx.toFixed(2)}px`);
     preview.style.setProperty('--page-line-height', String(previewState.pageSettings.lineHeight));
     preview.style.setProperty('--page-para-spacing-px', `${paraSpacingPx.toFixed(2)}px`);
+    preview.style.setProperty('--page-h1-size-px', `${(fontSizePx * 1.45).toFixed(2)}px`);
     preview.style.setProperty('--page-h2-size-px', `${(fontSizePx * 1.25).toFixed(2)}px`);
     preview.style.setProperty('--page-h3-size-px', `${(fontSizePx * 1.05).toFixed(2)}px`);
+    preview.style.setProperty('--page-h4-size-px', `${(fontSizePx * 0.98).toFixed(2)}px`);
 }
 
 function setPagePreset(presetName) {
@@ -285,13 +287,54 @@ function isSectionHeading(text) {
     return /^[A-Z][A-Za-z0-9,&:()'’\-./ ]+$/.test(normalized) && normalized.length < 110 && !/[.!?]$/.test(normalized);
 }
 
+function looksLikeHeadingBody(text) {
+    const normalized = String(text || '').trim();
+    if (!normalized) return false;
+    if (normalized.length > 120) return false;
+    if (/[.!?]$/.test(normalized)) return false;
+    if (!/[A-Za-z]/.test(normalized)) return false;
+    return /^[A-Z][A-Za-z0-9,&:()'’\-./ ]*$/.test(normalized);
+}
+
+function detectHeadingInfo(plainLine, contextState) {
+    const normalized = String(plainLine || '').trim();
+    if (!normalized) return null;
+
+    const markdownHeading = normalized.match(/^(#{1,6})\s+(.+)$/);
+    if (markdownHeading) {
+        const level = Math.min(Math.max(markdownHeading[1].length, 1), 4);
+        const body = String(markdownHeading[2] || '').trim();
+        if (body) return { level, body };
+    }
+
+    const numberedHeading = normalized.match(/^(\d+(?:\.\d+){0,5})\.?\s+(.+)$/);
+    if (numberedHeading) {
+        const body = String(numberedHeading[2] || '').trim();
+        if (looksLikeHeadingBody(body)) {
+            const depth = String(numberedHeading[1] || '').split('.').length;
+            const level = Math.min(depth + 1, 4);
+            return { level, body };
+        }
+    }
+
+    if (/^(abstract|introduction|methodology|methods|results|discussion|conclusion|references|keywords?)$/i.test(normalized)) {
+        return { level: 2, body: normalized };
+    }
+
+    if (looksLikeHeadingBody(normalized)) {
+        const hasSeenNarrative = contextState && contextState.sawBodyParagraph;
+        return { level: hasSeenNarrative ? 2 : 1, body: normalized };
+    }
+    return null;
+}
+
 function renderRichDocument(content, isHtmlInput) {
     const segments = previewHelpers.buildPreviewSegments(content, isHtmlInput);
     const previewImages = Array.isArray(previewState.fileContent.docxPreviewImages) ? previewState.fileContent.docxPreviewImages : [];
     let previewImageIndex = 0;
     let html = '<div class="doc-preview">';
     let activeList = null;
-    let sawFirstHeading = false;
+    const headingState = { sawBodyParagraph: false };
 
     function closeList() {
         if (!activeList) return;
@@ -357,6 +400,14 @@ function renderRichDocument(content, isHtmlInput) {
             continue;
         }
 
+        const headingInfo = detectHeadingInfo(plainLine, headingState);
+        if (headingInfo) {
+            closeList();
+            const tag = headingInfo.level === 1 ? 'h1' : headingInfo.level === 2 ? 'h2' : headingInfo.level === 3 ? 'h3' : 'h4';
+            html += `<${tag}>${rawLine}</${tag}>`;
+            continue;
+        }
+
         const referenceMatch = plainLine.match(/^\[(\d+)\]\s+(.+)/);
         if (referenceMatch) {
             openList('reference');
@@ -377,13 +428,8 @@ function renderRichDocument(content, isHtmlInput) {
         }
 
         closeList();
-        if (isSectionHeading(plainLine)) {
-            const tag = sawFirstHeading ? 'h3' : 'h2';
-            html += `<${tag}>${rawLine}</${tag}>`;
-            sawFirstHeading = true;
-        } else {
-            html += `<p>${rawLine}</p>`;
-        }
+        html += `<p>${rawLine}</p>`;
+        headingState.sawBodyParagraph = true;
     }
 
     closeList();
@@ -400,7 +446,7 @@ function renderPageDocument(content, isHtmlInput) {
     const previewImages = Array.isArray(previewState.fileContent.docxPreviewImages) ? previewState.fileContent.docxPreviewImages : [];
     let previewImageIndex = 0;
     const blocks = [];
-    let sawFirstHeading = false;
+    const headingState = { sawBodyParagraph: false };
 
     function lineBody(rawLine, plainLine, markerRegex) {
         return isHtmlInput ? rawLine.replace(markerRegex, '').trim() : previewHelpers.escapeHtml(plainLine.replace(markerRegex, '').trim());
@@ -455,6 +501,16 @@ function renderPageDocument(content, isHtmlInput) {
             blocks.push({ kind: 'gap', plain: '' });
             continue;
         }
+        const headingInfo = detectHeadingInfo(plainLine, headingState);
+        if (headingInfo) {
+            blocks.push({
+                kind: headingInfo.level === 1 ? 'h1' : headingInfo.level === 2 ? 'h2' : headingInfo.level === 3 ? 'h3' : 'h4',
+                plain: plainLine,
+                html: rawLine
+            });
+            continue;
+        }
+
         const referenceMatch = plainLine.match(/^\[(\d+)\]\s+(.+)/);
         if (referenceMatch) {
             blocks.push({ kind: 'ref', plain: referenceMatch[2], marker: `[${referenceMatch[1]}]`, html: lineBody(rawLine, plainLine, /^\[\d+\]\s+/) });
@@ -470,12 +526,8 @@ function renderPageDocument(content, isHtmlInput) {
             blocks.push({ kind: 'bullet', plain: bulletMatch[1], marker: '•', html: lineBody(rawLine, plainLine, /^[-*•]\s+/) });
             continue;
         }
-        if (isSectionHeading(plainLine)) {
-            blocks.push({ kind: sawFirstHeading ? 'h3' : 'h2', plain: plainLine, html: rawLine });
-            sawFirstHeading = true;
-            continue;
-        }
         blocks.push({ kind: 'p', plain: plainLine, html: rawLine });
+        headingState.sawBodyParagraph = true;
     }
     const unmatchedImages = previewImages.slice(previewImageIndex);
     if (unmatchedImages.length > 0) {
@@ -491,14 +543,18 @@ function renderPageDocument(content, isHtmlInput) {
     const paraSpacingPx = ptToPx(previewState.pageSettings.paragraphSpacingPt);
     const contentWidthPx = previewConstants.A4_WIDTH_PX - inToPx(previewState.pageSettings.marginLeftIn) - inToPx(previewState.pageSettings.marginRightIn);
     const charsPerLine = Math.max(34, Math.floor(contentWidthPx / Math.max(5.5, fontSizePx * 0.52)));
+    const h1LinePx = fontSizePx * 1.45 * 1.24;
     const h2LinePx = fontSizePx * 1.25 * 1.22;
     const h3LinePx = fontSizePx * 1.05 * 1.18;
+    const h4LinePx = fontSizePx * 0.98 * 1.15;
 
     function estimateBlockHeight(block) {
         const textLen = (block.plain || '').length;
         const estimatedLines = Math.max(1, Math.ceil(textLen / charsPerLine));
+        if (block.kind === 'h1') return 14 + estimatedLines * h1LinePx;
         if (block.kind === 'h2') return 10 + estimatedLines * h2LinePx;
         if (block.kind === 'h3') return 8 + estimatedLines * h3LinePx;
+        if (block.kind === 'h4') return 7 + estimatedLines * h4LinePx;
         if (block.kind === 'gap') return Math.max(8, linePx * 0.5);
         if (block.kind === 'equation') return Math.max(linePx * 1.5, estimatedLines * linePx + 16);
         if (block.kind === 'table') {
@@ -514,8 +570,10 @@ function renderPageDocument(content, isHtmlInput) {
 
     function blockToHtml(block) {
         if (block.kind === 'gap') return '<div class="doc-gap"></div>';
+        if (block.kind === 'h1') return `<h1>${block.html}</h1>`;
         if (block.kind === 'h2') return `<h2>${block.html}</h2>`;
         if (block.kind === 'h3') return `<h3>${block.html}</h3>`;
+        if (block.kind === 'h4') return `<h4>${block.html}</h4>`;
         if (block.kind === 'figure') return block.html;
         if (block.kind === 'table') return block.html;
         if (block.kind === 'equation') return block.html;
@@ -1484,6 +1542,13 @@ function renderCurrentPreview() {
                     <div class="pane-header glassmorphic">
                         <span class="pane-title">Interactive Corrected & Redline</span>
                         <div class="pane-header-meta">
+                            <div class="heading-legend" title="Heading hierarchy mapping">
+                                <span class="heading-legend-label">Map</span>
+                                <span class="heading-legend-chip">H1: Title</span>
+                                <span class="heading-legend-chip">H2: 1.</span>
+                                <span class="heading-legend-chip">H3: 1.1</span>
+                                <span class="heading-legend-chip">H4: 1.1.1</span>
+                            </div>
                             <span class="pane-mini-save-indicator hidden" id="rich-html-save-indicator">Saved</span>
                             <div class="pane-badge success">WYSIWYG Editor</div>
                         </div>
