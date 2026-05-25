@@ -96,8 +96,23 @@ function refreshProcessButtonState() {
 
 function setProgress(progress) {
     const progressFill = document.getElementById('progress-fill');
+    const safeProgress = Math.max(0, Math.min(100, Number(progress) || 0));
     if (progressFill) {
-        progressFill.style.width = progress + '%';
+        progressFill.style.width = safeProgress + '%';
+    }
+    if (mainDom.processingStageDots && mainDom.processingStageDots.length) {
+        const stageThreshold = {
+            parse: 10,
+            edit: 35,
+            validate: 68,
+            export: 92
+        };
+        mainDom.processingStageDots.forEach((dot) => {
+            const key = String(dot.getAttribute('data-processing-stage') || '').trim();
+            const threshold = Number(stageThreshold[key] || 999);
+            dot.classList.toggle('active', safeProgress >= threshold);
+            dot.classList.toggle('completed', safeProgress >= 100);
+        });
     }
 }
 
@@ -135,6 +150,7 @@ function startProcessingPresence() {
     mainState.processingStartedAt = Date.now();
     mainState.processingMessageIndex = 0;
     setProcessingPresenceVisible(true);
+    setProgress(8);
     if (mainDom.processingMessage) {
         mainDom.processingMessage.textContent = mainConstants.PROCESSING_MESSAGES[0];
     }
@@ -168,6 +184,7 @@ function stopProcessingPresence() {
     if (mainDom.processingTimer) {
         mainDom.processingTimer.textContent = '00:00';
     }
+    setProgress(0);
     setProcessingPresenceVisible(false);
 }
 

@@ -1746,13 +1746,14 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
     )
     print(f"[DOWNLOAD] db_lookup  type={normalized_type!r}  found={'yes' if file_row else 'NO — will attempt regen'}")
     if file_row is None:
-        # Try to regenerate from stored processed content if available.
+        # Regenerate from stored text whenever possible, even if task status is stale.
         task = _STORE.get_task_for_user(task_id=task_id, user_id=context.user_id, is_admin=context.role == ROLE_ADMIN)
-        if task and str(task.get("status") or "") in {"PROCESSED", "REVIEW_REQUIRED"}:
+        if task:
             corrected = str(task.get("corrected_text") or "")
             original = str(task.get("original_text") or "")
+            status = str(task.get("status") or "<none>")
             if corrected.strip() and original.strip():
-                print(f"[DOWNLOAD] regenerating all export variants for task={task_id!r}")
+                print(f"[DOWNLOAD] regenerating all export variants for task={task_id!r} status={status!r}")
                 _store_task_export_files(task, original_text=original, corrected_text=corrected)
                 file_row = _STORE.get_task_file_for_user(
                     task_id=task_id,
@@ -1762,10 +1763,9 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
                 )
                 print(f"[DOWNLOAD] post-regen lookup  type={normalized_type!r}  found={'yes' if file_row else 'STILL MISSING'}")
             else:
-                print(f"[DOWNLOAD] regen skipped — corrected/original text missing")
+                print(f"[DOWNLOAD] regen skipped — corrected/original text missing status={status!r}")
         else:
-            status = str(task.get("status") or "<none>") if task else "<task not found>"
-            print(f"[DOWNLOAD] regen skipped — task status={status!r}")
+            print(f"[DOWNLOAD] regen skipped — task not found for user")
 
     if file_row is None:
         raise FileNotFoundError("No generated file is available for this task")

@@ -350,7 +350,15 @@
                     <div class="processing-presence-header">
                         <div class="processing-presence-main">
                             <span class="processing-orbit" id="processing-orbit" aria-hidden="true"></span>
-                            <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                            <div class="processing-message-stack">
+                                <span class="processing-message" id="processing-message">Preparing your manuscript...</span>
+                                <div class="processing-stage-dots" aria-label="Processing stages">
+                                    <span class="processing-stage-dot" data-processing-stage="parse">Parse</span>
+                                    <span class="processing-stage-dot" data-processing-stage="edit">Edit</span>
+                                    <span class="processing-stage-dot" data-processing-stage="validate">Validate</span>
+                                    <span class="processing-stage-dot" data-processing-stage="export">Export</span>
+                                </div>
+                            </div>
                         </div>
                         <span class="processing-timer" id="processing-timer">00:00</span>
                     </div>

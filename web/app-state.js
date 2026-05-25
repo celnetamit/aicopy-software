@@ -289,6 +289,7 @@ app.dom = {
     processingPresence: document.getElementById('processing-presence'),
     processingMessage: document.getElementById('processing-message'),
     processingTimer: document.getElementById('processing-timer'),
+    processingStageDots: document.querySelectorAll('[data-processing-stage]'),
     aiProvider: document.getElementById('ai-provider'),
     ollamaModelSelect: document.getElementById('ollama-model-select'),
     refreshModelsBtn: document.getElementById('refresh-models-btn'),
