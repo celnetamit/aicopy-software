@@ -1048,27 +1048,34 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
 
     expires_at = int(time.time()) + FILE_RETENTION_DAYS * 24 * 3600
     modes = ["clean", "highlighted", "highlighted_comments", "track_changes"]
-    
+    print(f"[EXPORT] Generating {len(modes)} variants for task={task_id} source_docx={'yes' if source_docx_path else 'no'}")
+
     for mode in modes:
         mode_abs = os.path.join(task_dir, f"{mode}.docx")
-        manuscript_service.generate_docx_file(
-            processor=processor,
-            original_text=original_text,
-            corrected_text=corrected_text,
-            file_type=mode,
-            dest_path=mode_abs,
-            source_docx_path=source_docx_path,
-        )
-        mode_rel = _to_storage_relative_path(mode_abs)
-        _STORE.upsert_task_file(
-            task_id=task_id,
-            file_type=mode,
-            storage_path=mode_rel,
-            download_name=_build_download_filename(file_name, mode),
-            mime_type=MIME_DOCX,
-            size_bytes=os.path.getsize(mode_abs),
-            expires_at=expires_at,
-        )
+        try:
+            manuscript_service.generate_docx_file(
+                processor=processor,
+                original_text=original_text,
+                corrected_text=corrected_text,
+                file_type=mode,
+                dest_path=mode_abs,
+                source_docx_path=source_docx_path,
+            )
+            mode_rel = _to_storage_relative_path(mode_abs)
+            _STORE.upsert_task_file(
+                task_id=task_id,
+                file_type=mode,
+                storage_path=mode_rel,
+                download_name=_build_download_filename(file_name, mode),
+                mime_type=MIME_DOCX,
+                size_bytes=os.path.getsize(mode_abs),
+                expires_at=expires_at,
+            )
+            print(f"[EXPORT] OK  mode={mode} size={os.path.getsize(mode_abs)} bytes")
+        except Exception as _mode_exc:  # noqa: BLE001
+            import traceback as _tb
+            print(f"[EXPORT] FAIL mode={mode} error={_mode_exc}")
+            _tb.print_exc()
 
 
 def _task_summary(task_row: Dict) -> Dict:
@@ -1683,8 +1690,10 @@ def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions:
 def _resolve_task_download_file(context: SessionContext, task_id: str, file_type: str) -> Tuple[Dict, str, str]:
     """Resolve generated DOCX metadata and absolute path for task downloads."""
     normalized_type = str(file_type or "").strip().lower()
+    print(f"[DOWNLOAD] request  task={task_id!r}  raw_type={file_type!r}  normalized={normalized_type!r}")
     if normalized_type not in {"clean", "highlighted", "highlighted_comments", "track_changes"}:
         normalized_type = "highlighted"
+        print(f"[DOWNLOAD] unknown type, defaulted to 'highlighted'")
 
     file_row = _STORE.get_task_file_for_user(
         task_id=task_id,
@@ -1692,6 +1701,7 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
         user_id=context.user_id,
         is_admin=context.role == ROLE_ADMIN,
     )
+    print(f"[DOWNLOAD] db_lookup  type={normalized_type!r}  found={'yes' if file_row else 'NO — will attempt regen'}")
     if file_row is None:
         # Try to regenerate from stored processed content if available.
         task = _STORE.get_task_for_user(task_id=task_id, user_id=context.user_id, is_admin=context.role == ROLE_ADMIN)
@@ -1699,6 +1709,7 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
             corrected = str(task.get("corrected_text") or "")
             original = str(task.get("original_text") or "")
             if corrected.strip() and original.strip():
+                print(f"[DOWNLOAD] regenerating all export variants for task={task_id!r}")
                 _store_task_export_files(task, original_text=original, corrected_text=corrected)
                 file_row = _STORE.get_task_file_for_user(
                     task_id=task_id,
@@ -1706,12 +1717,20 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
                     user_id=context.user_id,
                     is_admin=context.role == ROLE_ADMIN,
                 )
+                print(f"[DOWNLOAD] post-regen lookup  type={normalized_type!r}  found={'yes' if file_row else 'STILL MISSING'}")
+            else:
+                print(f"[DOWNLOAD] regen skipped — corrected/original text missing")
+        else:
+            status = str(task.get("status") or "<none>") if task else "<task not found>"
+            print(f"[DOWNLOAD] regen skipped — task status={status!r}")
 
     if file_row is None:
         raise FileNotFoundError("No generated file is available for this task")
 
     file_abs = _resolve_storage_path(str(file_row.get("storage_path") or ""))
-    if not os.path.isfile(file_abs):
+    on_disk = os.path.isfile(file_abs)
+    print(f"[DOWNLOAD] resolved  path={file_abs!r}  on_disk={on_disk}")
+    if not on_disk:
         raise FileNotFoundError("Stored file was not found on disk")
 
     return file_row, file_abs, normalized_type
