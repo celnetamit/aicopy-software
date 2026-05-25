@@ -696,6 +696,7 @@ def _global_runtime_settings_for_user_payload(settings: Dict) -> Dict:
 
 def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict) -> Dict:
     opts = dict(request_options or {})
+    request_opts = dict(request_options or {})
     settings = _normalize_global_runtime_settings(runtime_settings or {})
     editing = settings.get("editing", {})
     ai = settings.get("ai", {})
@@ -749,6 +750,47 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
         "ollama_retry_backoff_seconds": float(ai.get("ollama_retry_backoff_seconds", 0)),
         "ollama_fallback_model_retry": bool(ai.get("ollama_fallback_model_retry", True)),
     }
+
+    # Request payload overrides must win for route-level explicit controls.
+    # This allows callers/tests to force AI/network behavior per request.
+    if "online_reference_validation" in request_opts:
+        opts["online_reference_validation"] = bool(request_opts.get("online_reference_validation"))
+    if "online_reference_serper_fallback" in request_opts:
+        opts["online_reference_serper_fallback"] = bool(request_opts.get("online_reference_serper_fallback"))
+    if "online_reference_validation_admin_cap" in request_opts:
+        try:
+            opts["online_reference_validation_admin_cap"] = int(request_opts.get("online_reference_validation_admin_cap"))
+        except Exception:
+            pass
+    if "auto_resolve_unresolved_references" in request_opts:
+        opts["auto_resolve_unresolved_references"] = bool(request_opts.get("auto_resolve_unresolved_references"))
+
+    request_ai = request_opts.get("ai") if isinstance(request_opts.get("ai"), dict) else {}
+    if request_ai:
+        for key in (
+            "enabled",
+            "provider",
+            "model",
+            "ollama_host",
+            "api_key",
+            "gemini_api_key",
+            "openrouter_api_key",
+            "agent_router_api_key",
+            "ai_first_cmos",
+            "section_wise",
+            "section_threshold_chars",
+            "section_threshold_paragraphs",
+            "section_chunk_chars",
+            "section_chunk_lines",
+            "global_consistency_max_chars",
+            "ollama_generate_timeout_seconds",
+            "ollama_health_timeout_seconds",
+            "ollama_retry_count",
+            "ollama_retry_backoff_seconds",
+            "ollama_fallback_model_retry",
+        ):
+            if key in request_ai:
+                opts["ai"][key] = request_ai[key]
     return opts
 
 

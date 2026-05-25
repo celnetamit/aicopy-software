@@ -234,6 +234,40 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("user", payload)
         return payload["user"]
 
+    @staticmethod
+    def _offline_processing_options():
+        """Stable process options for local endpoint tests without network calls."""
+        return {
+            "spelling": True,
+            "sentence_case": True,
+            "punctuation": True,
+            "chicago_style": True,
+            "online_reference_validation": False,
+            "online_reference_serper_fallback": False,
+            "auto_resolve_unresolved_references": False,
+            "ai": {"enabled": False},
+        }
+
+    @staticmethod
+    def _force_offline_runtime_settings():
+        runtime = webapp._read_global_runtime_settings()
+        editing = runtime.get("editing") if isinstance(runtime.get("editing"), dict) else {}
+        editing = dict(editing)
+        editing["online_reference_validation"] = False
+        editing["online_reference_serper_fallback"] = False
+        editing["auto_resolve_unresolved_references"] = False
+        runtime["editing"] = editing
+        ai = runtime.get("ai") if isinstance(runtime.get("ai"), dict) else {}
+        ai = dict(ai)
+        ai["enabled"] = False
+        runtime["ai"] = ai
+        normalized = webapp._normalize_global_runtime_settings(runtime)
+        webapp._STORE.upsert_app_setting(
+            key=webapp.APP_SETTING_KEY_GLOBAL_RUNTIME,
+            value=normalized,
+            updated_by_user_id="",
+        )
+
     def test_blocked_domain_cannot_login(self):
         status, payload = self.client.request(
             "POST",
@@ -761,7 +795,46 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIsNone(payload["value"])
         self.assertIsNone(payload["nested"]["score"])
 
+    def test_request_options_override_global_runtime_ai_flags(self):
+        runtime = webapp._normalize_global_runtime_settings(
+            {
+                "editing": {
+                    "online_reference_validation": True,
+                    "online_reference_serper_fallback": True,
+                    "auto_resolve_unresolved_references": True,
+                },
+                "ai": {
+                    "enabled": True,
+                    "provider": "ollama",
+                    "model": "llama3.1",
+                    "section_wise": True,
+                },
+            }
+        )
+        request_options = {
+            "online_reference_validation": False,
+            "online_reference_serper_fallback": False,
+            "auto_resolve_unresolved_references": False,
+            "ai": {
+                "enabled": False,
+                "provider": "gemini",
+                "model": "gemini-1.5-flash",
+                "section_wise": False,
+            },
+        }
+
+        merged = webapp._apply_global_runtime_settings(request_options, runtime)
+
+        self.assertFalse(bool(merged.get("online_reference_validation")))
+        self.assertFalse(bool(merged.get("online_reference_serper_fallback")))
+        self.assertFalse(bool(merged.get("auto_resolve_unresolved_references")))
+        self.assertFalse(bool((merged.get("ai") or {}).get("enabled")))
+        self.assertEqual(str((merged.get("ai") or {}).get("provider")), "gemini")
+        self.assertEqual(str((merged.get("ai") or {}).get("model")), "gemini-1.5-flash")
+        self.assertFalse(bool((merged.get("ai") or {}).get("section_wise")))
+
     def test_upload_process_and_download_round_trip(self):
+        self._force_offline_runtime_settings()
         self._login("writer@conwiz.in")
 
         status, payload = self.client.request(
@@ -777,15 +850,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         status, payload = self.client.request(
             "POST",
             f"/api/tasks/{task_id}/process",
-            {
-                "options": {
-                    "spelling": True,
-                    "sentence_case": True,
-                    "punctuation": True,
-                    "chicago_style": True,
-                    "ai": {"enabled": False},
-                }
-            },
+            {"options": self._offline_processing_options()},
         )
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
@@ -1140,15 +1205,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         status, payload = self.client.request(
             "POST",
             f"/api/tasks/{task_id}/process",
-            {
-                "options": {
-                    "spelling": True,
-                    "sentence_case": True,
-                    "punctuation": True,
-                    "chicago_style": True,
-                    "ai": {"enabled": False},
-                },
-            },
+            {"options": self._offline_processing_options()},
         )
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
@@ -1171,6 +1228,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("mode_counts", telemetry)
 
     def test_binary_download_endpoint_returns_valid_docx(self):
+        self._force_offline_runtime_settings()
         self._login("writer@conwiz.in")
 
         status, payload = self.client.request(
@@ -1186,15 +1244,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         status, payload = self.client.request(
             "POST",
             f"/api/tasks/{task_id}/process",
-            {
-                "options": {
-                    "spelling": True,
-                    "sentence_case": True,
-                    "punctuation": True,
-                    "chicago_style": True,
-                    "ai": {"enabled": False},
-                }
-            },
+            {"options": self._offline_processing_options()},
         )
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
