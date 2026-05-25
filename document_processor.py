@@ -1933,27 +1933,58 @@ Corrected manuscript:"""
         text: str,
         segment_type: Optional[str] = None,
         use_revisions: bool = False,
+        export_mode: Optional[str] = None,
+        comment_payload: Optional[Dict] = None,
     ):
         """Append styled text to an existing paragraph."""
         if not text:
             return
+            
+        if export_mode is None:
+            export_mode = "track_changes" if use_revisions else "visual"
+            
+        use_revs = (export_mode == "track_changes")
+            
         for is_missing, segment in self._iter_missing_placeholder_segments(text):
             if is_missing:
-                if use_revisions and segment_type in ("insert", "delete"):
-                    self._append_revision_run(paragraph, segment, segment_type=segment_type, is_missing=True)
+                if use_revs and segment_type in ("insert", "delete"):
+                    self._append_revision_run(
+                        paragraph,
+                        segment,
+                        segment_type=segment_type,
+                        is_missing=True,
+                        export_mode=export_mode,
+                        comment_payload=comment_payload,
+                    )
                 else:
-                    self._append_docx_run(paragraph, segment, segment_type=segment_type, is_missing=True)
+                    self._append_docx_run(
+                        paragraph,
+                        segment,
+                        segment_type=segment_type,
+                        is_missing=True,
+                        export_mode=export_mode,
+                        comment_payload=comment_payload,
+                    )
                 continue
             for is_foreign, foreign_segment in self._iter_foreign_segments(segment):
-                if use_revisions and segment_type in ("insert", "delete"):
+                if use_revs and segment_type in ("insert", "delete"):
                     self._append_revision_run(
                         paragraph,
                         foreign_segment,
                         segment_type=segment_type,
                         is_foreign=is_foreign,
+                        export_mode=export_mode,
+                        comment_payload=comment_payload,
                     )
                 else:
-                    self._append_docx_run(paragraph, foreign_segment, segment_type=segment_type, is_foreign=is_foreign)
+                    self._append_docx_run(
+                        paragraph,
+                        foreign_segment,
+                        segment_type=segment_type,
+                        is_foreign=is_foreign,
+                        export_mode=export_mode,
+                        comment_payload=comment_payload,
+                    )
 
     def _configure_docx_document_defaults(self, doc: DocxDocument):
         """Apply base page and font defaults for generated DOCX documents."""
@@ -2034,27 +2065,62 @@ Corrected manuscript:"""
         doc: DocxDocument,
         text: str,
         *,
-        highlighted: bool = False,
+        export_mode: str = "clean",
         original_text: str = "",
         structure_hint: Optional[str] = None,
+        highlighted: Optional[bool] = None,
     ):
         """Append one inferred paragraph to a generated fallback DOCX."""
+        if highlighted is not None:
+            export_mode = "visual" if highlighted else "clean"
+
         classified = self._classify_plaintext_line(structure_hint if structure_hint is not None else text)
         paragraph = doc.add_paragraph()
         self._apply_fallback_paragraph_layout(paragraph, classified["kind"])
 
         body_text = self._classify_plaintext_line(text)["text"]
-        if highlighted:
+        if export_mode != "clean":
             original_body_text = self._classify_plaintext_line(original_text)["text"]
-            for segment_type, segment_text in self._iter_diff_segments(original_body_text, body_text):
+            diff_segments = list(self._iter_diff_segments(original_body_text, body_text))
+            
+            paragraph._last_deleted_text = ""
+            for idx, (segment_type, segment_text) in enumerate(diff_segments):
+                is_followed_by_insert = False
+                if segment_type == "delete" and idx + 1 < len(diff_segments):
+                    next_type, _ = diff_segments[idx + 1]
+                    if next_type == "insert":
+                        is_followed_by_insert = True
+                
+                comment_payload = None
+                include_comments = (export_mode in ("visual_comments", "track_changes"))
+                
+                if include_comments:
+                    if segment_type == "delete" and not is_followed_by_insert:
+                        if not self._is_minor_change(segment_text, ""):
+                            comment_payload = {"text": f'Removed "{segment_text}"'}
+                    elif segment_type == "insert":
+                        deleted = getattr(paragraph, "_last_deleted_text", "")
+                        if deleted:
+                            if not self._is_minor_change(deleted, segment_text):
+                                reason = self._classify_change_reason(deleted, segment_text)
+                                comment_payload = {"text": f'Changed "{deleted}" to "{segment_text}" ({reason})'}
+                            paragraph._last_deleted_text = ""
+                        else:
+                            if not self._is_minor_change("", segment_text):
+                                comment_payload = {"text": f'Added "{segment_text}"'}
+                
+                if segment_type == "delete" and is_followed_by_insert:
+                    paragraph._last_deleted_text = getattr(paragraph, "_last_deleted_text", "") + segment_text
+                
                 self._append_text_segments_to_paragraph(
                     paragraph,
                     segment_text,
                     segment_type=segment_type,
-                    use_revisions=True,
+                    export_mode=export_mode,
+                    comment_payload=comment_payload,
                 )
         else:
-            self._append_text_segments_to_paragraph(paragraph, body_text)
+            self._append_text_segments_to_paragraph(paragraph, body_text, export_mode="clean")
         return paragraph
 
     def _split_textbox_paragraphs(self, text: str) -> List[str]:
@@ -2157,9 +2223,13 @@ Corrected manuscript:"""
         original: str,
         corrected: str,
         *,
-        use_revisions: bool = False,
+        export_mode: str = "visual",
+        use_revisions: Optional[bool] = None,
     ):
         """Replace paragraph content with redline-style runs while preserving drawings."""
+        if use_revisions is not None:
+            export_mode = "track_changes" if use_revisions else "visual"
+
         keep_drawings = self._paragraph_has_drawing(paragraph)
         original_body, _ = self._split_paragraph_and_textboxes(paragraph, original)
         corrected_body, _ = self._split_paragraph_and_textboxes(paragraph, corrected)
@@ -2172,16 +2242,46 @@ Corrected manuscript:"""
                 diff_segments.append(("insert", corrected_body))
         else:
             diff_segments = list(self._iter_diff_segments(original_body, corrected_body))
-        for segment_type, segment_text in diff_segments:
+
+        paragraph._last_deleted_text = ""
+        for idx, (segment_type, segment_text) in enumerate(diff_segments):
+            is_followed_by_insert = False
+            if segment_type == "delete" and idx + 1 < len(diff_segments):
+                next_type, _ = diff_segments[idx + 1]
+                if next_type == "insert":
+                    is_followed_by_insert = True
+            
+            comment_payload = None
+            include_comments = (export_mode in ("visual_comments", "track_changes"))
+            
+            if include_comments:
+                if segment_type == "delete" and not is_followed_by_insert:
+                    if not self._is_minor_change(segment_text, ""):
+                        comment_payload = {"text": f'Removed "{segment_text}"'}
+                elif segment_type == "insert":
+                    deleted = getattr(paragraph, "_last_deleted_text", "")
+                    if deleted:
+                        if not self._is_minor_change(deleted, segment_text):
+                            reason = self._classify_change_reason(deleted, segment_text)
+                            comment_payload = {"text": f'Changed "{deleted}" to "{segment_text}" ({reason})'}
+                        paragraph._last_deleted_text = ""
+                    else:
+                        if not self._is_minor_change("", segment_text):
+                            comment_payload = {"text": f'Added "{segment_text}"'}
+            
+            if segment_type == "delete" and is_followed_by_insert:
+                paragraph._last_deleted_text = getattr(paragraph, "_last_deleted_text", "") + segment_text
+
             self._append_text_segments_to_paragraph(
                 paragraph,
                 segment_text,
                 segment_type=segment_type,
-                use_revisions=use_revisions,
+                export_mode=export_mode,
+                comment_payload=comment_payload,
             )
         self._sync_textboxes(paragraph, corrected, original_text=original, highlighted=True)
 
-    def _insert_highlighted_paragraph_before_block(self, block: Dict, text: str):
+    def _insert_highlighted_paragraph_before_block(self, block: Dict, text: str, *, export_mode: str = "visual"):
         """Insert a highlighted paragraph before a paragraph block when possible."""
         if block.get("type") != "paragraph":
             return False
@@ -2191,7 +2291,7 @@ Corrected manuscript:"""
         inserted = anchor.insert_paragraph_before("")
         inserted.paragraph_format.space_after = Pt(0)
         inserted.paragraph_format.line_spacing = 1.5
-        self._write_paragraph_diff(inserted, "", text, use_revisions=True)
+        self._write_paragraph_diff(inserted, "", text, export_mode=export_mode)
         return True
 
     def _split_table_line(self, line: str, cell_count: int) -> List[str]:
@@ -2324,8 +2424,19 @@ Corrected manuscript:"""
             self._clear_paragraph_content(new_paragraph)
             self._append_text_segments_to_paragraph(new_paragraph, extra_paragraph["text"])
 
-    def _rewrite_cell_diff(self, cell, original: str, corrected: str, *, use_revisions: bool = False):
+    def _rewrite_cell_diff(
+        self,
+        cell,
+        original: str,
+        corrected: str,
+        *,
+        export_mode: str = "visual",
+        use_revisions: Optional[bool] = None,
+    ):
         """Replace cell text with redline-style runs."""
+        if use_revisions is not None:
+            export_mode = "track_changes" if use_revisions else "visual"
+
         original_blocks = self._split_cell_blocks(original)
         corrected_blocks = self._split_cell_blocks(corrected)
         original_paragraphs = [block for block in original_blocks if block["type"] == "paragraph"]
@@ -2362,12 +2473,42 @@ Corrected manuscript:"""
                         diff_segments.append(("insert", corrected_text))
                 else:
                     diff_segments = list(self._iter_diff_segments(original_text, corrected_text))
-                for segment_type, segment_text in diff_segments:
+
+                block._last_deleted_text = ""
+                for idx, (segment_type, segment_text) in enumerate(diff_segments):
+                    is_followed_by_insert = False
+                    if segment_type == "delete" and idx + 1 < len(diff_segments):
+                        next_type, _ = diff_segments[idx + 1]
+                        if next_type == "insert":
+                            is_followed_by_insert = True
+                    
+                    comment_payload = None
+                    include_comments = (export_mode in ("visual_comments", "track_changes"))
+                    
+                    if include_comments:
+                        if segment_type == "delete" and not is_followed_by_insert:
+                            if not self._is_minor_change(segment_text, ""):
+                                comment_payload = {"text": f'Removed "{segment_text}"'}
+                        elif segment_type == "insert":
+                            deleted = getattr(block, "_last_deleted_text", "")
+                            if deleted:
+                                if not self._is_minor_change(deleted, segment_text):
+                                    reason = self._classify_change_reason(deleted, segment_text)
+                                    comment_payload = {"text": f'Changed "{deleted}" to "{segment_text}" ({reason})'}
+                                block._last_deleted_text = ""
+                            else:
+                                if not self._is_minor_change("", segment_text):
+                                    comment_payload = {"text": f'Added "{segment_text}"'}
+                    
+                    if segment_type == "delete" and is_followed_by_insert:
+                        block._last_deleted_text = getattr(block, "_last_deleted_text", "") + segment_text
+
                     self._append_text_segments_to_paragraph(
                         block,
                         segment_text,
                         segment_type=segment_type,
-                        use_revisions=use_revisions,
+                        export_mode=export_mode,
+                        comment_payload=comment_payload,
                     )
                 continue
 
@@ -2390,19 +2531,65 @@ Corrected manuscript:"""
                     diff_segments.append(("insert", corrected_text))
             else:
                 diff_segments = list(self._iter_diff_segments(original_text, corrected_text))
-            for segment_type, segment_text in diff_segments:
+
+            target_paragraph._last_deleted_text = ""
+            for s_idx, (segment_type, segment_text) in enumerate(diff_segments):
+                is_followed_by_insert = False
+                if segment_type == "delete" and s_idx + 1 < len(diff_segments):
+                    next_type, _ = diff_segments[s_idx + 1]
+                    if next_type == "insert":
+                        is_followed_by_insert = True
+                
+                comment_payload = None
+                include_comments = (export_mode in ("visual_comments", "track_changes"))
+                
+                if include_comments:
+                    if segment_type == "delete" and not is_followed_by_insert:
+                        if not self._is_minor_change(segment_text, ""):
+                            comment_payload = {"text": f'Removed "{segment_text}"'}
+                    elif segment_type == "insert":
+                        deleted = getattr(target_paragraph, "_last_deleted_text", "")
+                        if deleted:
+                            if not self._is_minor_change(deleted, segment_text):
+                                reason = self._classify_change_reason(deleted, segment_text)
+                                comment_payload = {"text": f'Changed "{deleted}" to "{segment_text}" ({reason})'}
+                            target_paragraph._last_deleted_text = ""
+                        else:
+                            if not self._is_minor_change("", segment_text):
+                                comment_payload = {"text": f'Added "{segment_text}"'}
+                
+                if segment_type == "delete" and is_followed_by_insert:
+                    target_paragraph._last_deleted_text = getattr(target_paragraph, "_last_deleted_text", "") + segment_text
+
                 self._append_text_segments_to_paragraph(
                     target_paragraph,
                     segment_text,
                     segment_type=segment_type,
-                    use_revisions=use_revisions,
+                    export_mode=export_mode,
+                    comment_payload=comment_payload,
                 )
 
-    def _apply_text_to_template_docx(self, source_docx_path: str, text: str, output_path: str, highlighted: bool = False):
+    def _apply_text_to_template_docx(
+        self,
+        source_docx_path: str,
+        text: str,
+        output_path: str,
+        *,
+        export_mode: str = "visual",
+        highlighted: Optional[bool] = None,
+    ):
         """Project corrected text back into the original DOCX structure."""
+        if highlighted is not None:
+            export_mode = "visual" if highlighted else "clean"
+
         doc = Document(source_docx_path)
-        if highlighted:
+        self._current_doc = doc
+        
+        is_highlighted = (export_mode != "clean")
+        
+        if export_mode == "track_changes":
             self._enable_track_revisions(doc)
+            
         blocks = self._extract_docx_blocks(doc)
         corrected_lines = (text or "").split('\n')
         source_lines = [block.get("text", "") for block in blocks if block.get("consumes_text", True)]
@@ -2415,7 +2602,7 @@ Corrected manuscript:"""
             bucket = insertions_before.setdefault(boundary_index, [])
             bucket.extend(values)
 
-        if highlighted:
+        if is_highlighted:
             # Align template/source lines to corrected lines before token-level diffing.
             # This avoids cascade redline when one line is inserted/deleted.
             projected_lines = []
@@ -2448,42 +2635,43 @@ Corrected manuscript:"""
 
         for block in blocks:
             if block.get("consumes_text", True):
-                if highlighted:
+                if is_highlighted:
                     for inserted_line in insertions_before.get(corrected_index, []):
-                        if not self._insert_highlighted_paragraph_before_block(block, inserted_line):
+                        if not self._insert_highlighted_paragraph_before_block(block, inserted_line, export_mode=export_mode):
                             pending_appended_insertions.append(inserted_line)
                 corrected_line = projected_lines[corrected_index] if corrected_index < len(projected_lines) else ""
                 corrected_index += 1
             else:
                 corrected_line = block.get("text", "")
             if block["type"] == "paragraph":
-                if highlighted:
-                    self._write_paragraph_diff(block["paragraph"], block["text"], corrected_line)
+                if is_highlighted:
+                    self._write_paragraph_diff(block["paragraph"], block["text"], corrected_line, export_mode=export_mode)
                 else:
                     self._write_paragraph_text(block["paragraph"], corrected_line)
                 continue
 
             cell_values = self._split_table_line(corrected_line, len(block["cells"]))
             for cell, original_value, corrected_value in zip(block["row"].cells, block["cells"], cell_values):
-                if highlighted:
-                    self._rewrite_cell_diff(cell, original_value, corrected_value)
+                if is_highlighted:
+                    self._rewrite_cell_diff(cell, original_value, corrected_value, export_mode=export_mode)
                 else:
                     self._rewrite_cell(cell, corrected_value)
 
         tail_lines = projected_lines[corrected_index:]
-        if highlighted:
+        if is_highlighted:
             tail_lines = tail_lines + insertions_before.get(corrected_index, []) + pending_appended_insertions
         for extra_line in tail_lines:
             paragraph = doc.add_paragraph()
             paragraph.paragraph_format.space_after = Pt(0)
             paragraph.paragraph_format.line_spacing = 1.5
-            if highlighted:
-                self._write_paragraph_diff(paragraph, "", extra_line)
+            if is_highlighted:
+                self._write_paragraph_diff(paragraph, "", extra_line, export_mode=export_mode)
             else:
                 self._write_paragraph_text(paragraph, extra_line)
 
         doc.save(output_path)
         self._preserve_docx_special_parts(source_docx_path, output_path)
+        self._current_doc = None
 
     def generate_clean_docx(self, text: str, output_path: str, source_docx_path: str = ""):
         """Generate a clean DOCX with all corrections applied."""
@@ -2499,14 +2687,31 @@ Corrected manuscript:"""
 
         doc.save(output_path)
 
-    def generate_highlighted_docx(self, original: str, corrected: str, output_path: str, source_docx_path: str = ""):
+    def generate_highlighted_docx(
+        self,
+        original: str,
+        corrected: str,
+        output_path: str,
+        source_docx_path: str = "",
+        *,
+        export_mode: str = "visual",
+    ):
         """Generate a DOCX with track changes showing corrections."""
         if source_docx_path and os.path.exists(source_docx_path):
-            self._apply_text_to_template_docx(source_docx_path, corrected, output_path, highlighted=True)
+            self._apply_text_to_template_docx(
+                source_docx_path,
+                corrected,
+                output_path,
+                export_mode=export_mode,
+            )
             return
 
         doc = Document()
-        self._enable_track_revisions(doc)
+        self._current_doc = doc
+        
+        if export_mode == "track_changes":
+            self._enable_track_revisions(doc)
+            
         self._configure_docx_document_defaults(doc)
 
         original_lines = (original or "").split('\n')
@@ -2516,7 +2721,7 @@ Corrected manuscript:"""
         for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
             if opcode == "equal":
                 for line in corrected_lines[j1:j2]:
-                    self._add_fallback_docx_paragraph(doc, line, highlighted=False)
+                    self._add_fallback_docx_paragraph(doc, line, export_mode="clean")
                 continue
 
             if opcode == "insert":
@@ -2524,7 +2729,7 @@ Corrected manuscript:"""
                     self._add_fallback_docx_paragraph(
                         doc,
                         line,
-                        highlighted=True,
+                        export_mode=export_mode,
                         original_text="",
                     )
                 continue
@@ -2534,7 +2739,7 @@ Corrected manuscript:"""
                     self._add_fallback_docx_paragraph(
                         doc,
                         "",
-                        highlighted=True,
+                        export_mode=export_mode,
                         original_text=line,
                         structure_hint=line,
                     )
@@ -2550,12 +2755,13 @@ Corrected manuscript:"""
                 self._add_fallback_docx_paragraph(
                     doc,
                     corrected_line,
-                    highlighted=True,
+                    export_mode=export_mode,
                     original_text=original_line,
                     structure_hint=structure_hint,
                 )
 
         doc.save(output_path)
+        self._current_doc = None
 
     def build_redline_html(self, original: str, corrected: str) -> str:
         """Build redline HTML preview with Word-style red change markup."""
@@ -2701,7 +2907,17 @@ Corrected manuscript:"""
         if last < len(source):
             yield False, source[last:]
 
-    def _append_docx_run(self, paragraph, text: str, *, segment_type: Optional[str] = None, is_foreign: bool = False, is_missing: bool = False):
+    def _append_docx_run(
+        self,
+        paragraph,
+        text: str,
+        *,
+        segment_type: Optional[str] = None,
+        is_foreign: bool = False,
+        is_missing: bool = False,
+        export_mode: str = "visual",
+        comment_payload: Optional[Dict] = None,
+    ):
         """Append a styled DOCX run for preview/export output."""
         run = paragraph.add_run(text)
         if is_foreign:
@@ -2717,6 +2933,36 @@ Corrected manuscript:"""
             run.font.color.rgb = self.REDLINE_DELETE_COLOR
         elif segment_type == "insert":
             run.font.color.rgb = self.REDLINE_INSERT_COLOR
+
+        doc = getattr(self, "_current_doc", None)
+        if comment_payload and doc:
+            comment_id = self._get_next_comment_id(doc)
+            self._add_comment_to_part(doc, comment_id, comment_payload["text"])
+            
+            r_element = run._r
+            parent = r_element.getparent()
+            if parent is not None:
+                start = OxmlElement('w:commentRangeStart')
+                start.set(qn('w:id'), str(comment_id))
+                end = OxmlElement('w:commentRangeEnd')
+                end.set(qn('w:id'), str(comment_id))
+                
+                parent.insert(parent.index(r_element), start)
+                parent.insert(parent.index(r_element) + 1, end)
+                
+                ref_run = OxmlElement('w:r')
+                rpr = OxmlElement('w:rPr')
+                rstyle = OxmlElement('w:rStyle')
+                rstyle.set(qn('w:val'), 'CommentReference')
+                rpr.append(rstyle)
+                ref_run.append(rpr)
+                
+                ref = OxmlElement('w:commentReference')
+                ref.set(qn('w:id'), str(comment_id))
+                ref_run.append(ref)
+                
+                parent.insert(parent.index(end) + 1, ref_run)
+
         return run
 
     def _next_revision_meta(self) -> Dict[str, str]:
@@ -2737,12 +2983,22 @@ Corrected manuscript:"""
         segment_type: str,
         is_foreign: bool = False,
         is_missing: bool = False,
+        export_mode: str = "track_changes",
+        comment_payload: Optional[Dict] = None,
     ):
         """Append Word-compatible tracked revision XML (w:ins / w:del)."""
         if not text:
             return
         if segment_type not in ("insert", "delete"):
-            self._append_docx_run(paragraph, text, segment_type=segment_type, is_foreign=is_foreign, is_missing=is_missing)
+            self._append_docx_run(
+                paragraph,
+                text,
+                segment_type=segment_type,
+                is_foreign=is_foreign,
+                is_missing=is_missing,
+                export_mode=export_mode,
+                comment_payload=comment_payload,
+            )
             return
 
         container_tag = "w:ins" if segment_type == "insert" else "w:del"
@@ -2781,6 +3037,34 @@ Corrected manuscript:"""
         container.append(run_elm)
         paragraph._p.append(container)
 
+        doc = getattr(self, "_current_doc", None)
+        if comment_payload and doc:
+            comment_id = self._get_next_comment_id(doc)
+            self._add_comment_to_part(doc, comment_id, comment_payload["text"])
+            
+            parent = paragraph._p
+            if parent is not None:
+                start = OxmlElement('w:commentRangeStart')
+                start.set(qn('w:id'), str(comment_id))
+                end = OxmlElement('w:commentRangeEnd')
+                end.set(qn('w:id'), str(comment_id))
+                
+                parent.insert(parent.index(container), start)
+                parent.insert(parent.index(container) + 1, end)
+                
+                ref_run = OxmlElement('w:r')
+                rpr = OxmlElement('w:rPr')
+                rstyle = OxmlElement('w:rStyle')
+                rstyle.set(qn('w:val'), 'CommentReference')
+                rpr.append(rstyle)
+                ref_run.append(rpr)
+                
+                ref = OxmlElement('w:commentReference')
+                ref.set(qn('w:id'), str(comment_id))
+                ref_run.append(ref)
+                
+                parent.insert(parent.index(end) + 1, ref_run)
+
     def _enable_track_revisions(self, doc: DocxDocument):
         """Enable review markup mode in document settings for Office-compatible toggles."""
         settings = doc.settings.element
@@ -2790,6 +3074,117 @@ Corrected manuscript:"""
             return
         track = OxmlElement("w:trackRevisions")
         settings.append(track)
+
+    def _get_next_comment_id(self, doc) -> int:
+        """Get unique, incrementing comment ID for a document."""
+        if not hasattr(doc, "_comment_id"):
+            doc._comment_id = 1
+        comment_id = doc._comment_id
+        doc._comment_id += 1
+        return comment_id
+
+    def _classify_change_reason(self, original: str, corrected: str) -> str:
+        """Classify change between original and corrected string for premium comments."""
+        orig_clean = (original or "").strip()
+        corr_clean = (corrected or "").strip()
+        if not orig_clean and corr_clean:
+            return "style enrichment: added segment"
+        if orig_clean and not corr_clean:
+            return "style refinement: removed segment"
+        
+        # Capitalization
+        if orig_clean.lower() == corr_clean.lower():
+            return "capitalization correction"
+            
+        # Punctuation only
+        orig_nopunct = re.sub(r'[^\w\s]', '', orig_clean)
+        corr_nopunct = re.sub(r'[^\w\s]', '', corr_clean)
+        if orig_nopunct == corr_nopunct:
+            return "punctuation correction"
+            
+        # Chicago style / bibliography
+        if "doi:" in orig_clean.lower() or "doi:" in corr_clean.lower():
+            return "reference formatting: DOI validation"
+        if re.search(r'\[\d+\]', orig_clean) or re.search(r'\[\d+\]', corr_clean):
+            return "citation style: Vancouver numbered renumbering"
+            
+        # Spelling similarity
+        if len(orig_clean) > 0 and len(corr_clean) > 0:
+            matcher = difflib.SequenceMatcher(a=orig_clean, b=corr_clean)
+            if matcher.ratio() > 0.6:
+                return "spelling correction"
+                
+        return "style and grammar refinement"
+
+    def _is_minor_change(self, original: str, corrected: str) -> bool:
+        """Return True if the change is a minor punctuation or space change that can be skipped for cleaner comments."""
+        orig_clean = (original or "").strip()
+        corr_clean = (corrected or "").strip()
+        if not orig_clean and not corr_clean:
+            return True
+        if orig_clean == "" or corr_clean == "":
+            if not orig_clean.strip() and not corr_clean.strip():
+                return True
+        if len(orig_clean) <= 1 and len(corr_clean) <= 1:
+            if not orig_clean.isalnum() and not corr_clean.isalnum():
+                return True
+        return False
+
+    def _get_or_create_comments_part(self, doc):
+        """Get or create word/comments.xml part in the package."""
+        if hasattr(doc, "_comments_part"):
+            return doc._comments_part
+            
+        comments_part = None
+        for rel in doc.part.rels.values():
+            if rel.reltype == "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments":
+                comments_part = rel.target_part
+                break
+                
+        if comments_part is None:
+            from docx.opc.part import Part
+            from docx.oxml import parse_xml
+            
+            uri = "/word/comments.xml"
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
+            initial_xml = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                '<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+                '</w:comments>'
+            )
+            comments_element = parse_xml(initial_xml)
+            comments_part = Part(uri, content_type, comments_element, doc.part.package)
+            doc.part.relate_to(
+                comments_part,
+                "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
+            )
+            
+        doc._comments_part = comments_part
+        return comments_part
+
+    def _add_comment_to_part(self, doc, comment_id, text, author="Manuscript Editor"):
+        """Add a comment node to the comments part XML."""
+        comments_part = self._get_or_create_comments_part(doc)
+        
+        comments_root = getattr(comments_part, "_element", None)
+        if comments_root is None:
+            comments_root = getattr(comments_part, "element", None)
+            
+        comment = OxmlElement('w:comment')
+        comment.set(qn('w:id'), str(comment_id))
+        comment.set(qn('w:author'), author)
+        comment.set(qn('w:date'), datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+        comment.set(qn('w:initials'), "ME")
+        
+        p = OxmlElement('w:p')
+        r = OxmlElement('w:r')
+        t = OxmlElement('w:t')
+        t.text = text
+        r.append(t)
+        p.append(r)
+        comment.append(p)
+        
+        comments_root.append(comment)
 
     def _build_annotated_html(self, text: str, include_foreign: bool = True) -> str:
         """Return HTML-safe text with placeholders/foreign terms wrapped for display."""

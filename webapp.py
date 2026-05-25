@@ -978,7 +978,11 @@ def _resolve_storage_path(relative_path: str) -> str:
 
 def _build_download_filename(original_file_name: str, file_type: str) -> str:
     base_name = os.path.splitext(_safe_file_name(original_file_name or "manuscript"))[0] or "manuscript"
-    prefix = "clean" if file_type == "clean" else "highlighted"
+    ft = str(file_type or "").strip().lower()
+    if ft in {"clean", "highlighted", "highlighted_comments", "track_changes"}:
+        prefix = ft
+    else:
+        prefix = "highlighted"
     return f"{prefix}_{base_name}.docx"
 
 
@@ -1042,49 +1046,29 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
         except Exception:
             source_docx_path = ""
 
-    clean_abs = os.path.join(task_dir, "clean.docx")
-    highlighted_abs = os.path.join(task_dir, "highlighted.docx")
-
-    manuscript_service.generate_docx_file(
-        processor=processor,
-        original_text=original_text,
-        corrected_text=corrected_text,
-        file_type="clean",
-        dest_path=clean_abs,
-        source_docx_path=source_docx_path,
-    )
-    manuscript_service.generate_docx_file(
-        processor=processor,
-        original_text=original_text,
-        corrected_text=corrected_text,
-        file_type="highlighted",
-        dest_path=highlighted_abs,
-        source_docx_path=source_docx_path,
-    )
-
     expires_at = int(time.time()) + FILE_RETENTION_DAYS * 24 * 3600
-
-    clean_rel = _to_storage_relative_path(clean_abs)
-    highlighted_rel = _to_storage_relative_path(highlighted_abs)
-
-    _STORE.upsert_task_file(
-        task_id=task_id,
-        file_type="clean",
-        storage_path=clean_rel,
-        download_name=_build_download_filename(file_name, "clean"),
-        mime_type=MIME_DOCX,
-        size_bytes=os.path.getsize(clean_abs),
-        expires_at=expires_at,
-    )
-    _STORE.upsert_task_file(
-        task_id=task_id,
-        file_type="highlighted",
-        storage_path=highlighted_rel,
-        download_name=_build_download_filename(file_name, "highlighted"),
-        mime_type=MIME_DOCX,
-        size_bytes=os.path.getsize(highlighted_abs),
-        expires_at=expires_at,
-    )
+    modes = ["clean", "highlighted", "highlighted_comments", "track_changes"]
+    
+    for mode in modes:
+        mode_abs = os.path.join(task_dir, f"{mode}.docx")
+        manuscript_service.generate_docx_file(
+            processor=processor,
+            original_text=original_text,
+            corrected_text=corrected_text,
+            file_type=mode,
+            dest_path=mode_abs,
+            source_docx_path=source_docx_path,
+        )
+        mode_rel = _to_storage_relative_path(mode_abs)
+        _STORE.upsert_task_file(
+            task_id=task_id,
+            file_type=mode,
+            storage_path=mode_rel,
+            download_name=_build_download_filename(file_name, mode),
+            mime_type=MIME_DOCX,
+            size_bytes=os.path.getsize(mode_abs),
+            expires_at=expires_at,
+        )
 
 
 def _task_summary(task_row: Dict) -> Dict:
@@ -1101,6 +1085,8 @@ def _task_summary(task_row: Dict) -> Dict:
         "processed_at": int(task_row.get("processed_at") or 0),
         "can_download_clean": downloadable,
         "can_download_highlighted": downloadable,
+        "can_download_highlighted_comments": downloadable,
+        "can_download_track_changes": downloadable,
     }
 
 
@@ -1696,7 +1682,9 @@ def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions:
 
 def _resolve_task_download_file(context: SessionContext, task_id: str, file_type: str) -> Tuple[Dict, str, str]:
     """Resolve generated DOCX metadata and absolute path for task downloads."""
-    normalized_type = "clean" if str(file_type or "").strip().lower() == "clean" else "highlighted"
+    normalized_type = str(file_type or "").strip().lower()
+    if normalized_type not in {"clean", "highlighted", "highlighted_comments", "track_changes"}:
+        normalized_type = "highlighted"
 
     file_row = _STORE.get_task_file_for_user(
         task_id=task_id,

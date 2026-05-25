@@ -185,22 +185,29 @@ def generate_docx_export_base64(
     file_type: str,
     source_docx_path: str = "",
 ) -> Dict[str, Any]:
-    """Generate clean/highlighted docx, returning base64 string, size, and mime-type."""
-    normalized_type = "clean" if file_type == "clean" else "highlighted"
+    """Generate clean/highlighted/tracked docx, returning base64 string, size, and mime-type."""
+    ft_clean = str(file_type or "").strip().lower()
     
     temp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as handle:
             temp_path = handle.name
 
-        if normalized_type == "clean":
+        if ft_clean == "clean":
             processor.generate_clean_docx(corrected_text, temp_path, source_docx_path=source_docx_path)
         else:
+            export_mode = "visual"
+            if ft_clean == "highlighted_comments":
+                export_mode = "visual_comments"
+            elif ft_clean == "track_changes":
+                export_mode = "track_changes"
+                
             processor.generate_highlighted_docx(
                 original_text,
                 corrected_text,
                 temp_path,
                 source_docx_path=source_docx_path,
+                export_mode=export_mode,
             )
 
         with open(temp_path, "rb") as infile:
@@ -228,14 +235,21 @@ def generate_docx_file(
     dest_path: str,
     source_docx_path: str = "",
 ) -> None:
-    """Generate clean or highlighted DOCX file to a destination path."""
-    normalized_type = "clean" if file_type == "clean" else "highlighted"
-    if normalized_type == "clean":
+    """Generate clean or styled DOCX file to a destination path."""
+    ft_clean = str(file_type or "").strip().lower()
+    if ft_clean == "clean":
         processor.generate_clean_docx(corrected_text, dest_path, source_docx_path=source_docx_path)
     else:
+        export_mode = "visual"
+        if ft_clean == "highlighted_comments":
+            export_mode = "visual_comments"
+        elif ft_clean == "track_changes":
+            export_mode = "track_changes"
+            
         processor.generate_highlighted_docx(
             original_text,
             corrected_text,
             dest_path,
             source_docx_path=source_docx_path,
+            export_mode=export_mode,
         )

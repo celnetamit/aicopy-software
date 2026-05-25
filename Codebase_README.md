@@ -17,8 +17,8 @@ Primary user outcomes:
 4. Clear auditability via highlighted (redline) exports
 
 Current product stage:
-1. `Release Candidate / Engineering-Complete Core`
-2. Main remaining release gate: fresh-machine package QA sign-off (Windows/Ubuntu)
+1. `Active Development — v1.2.0-dev`
+2. Core features and packaging pipelines (v1.1.1) were fully verified and signed off on 2026-05-23.
 
 ## 2) Who Uses It
 
@@ -31,11 +31,13 @@ Current product stage:
 
 1. Authenticated web experience with role-based admin capabilities
 2. Multi-provider AI support (Ollama/Gemini/OpenRouter/AgentRouter) + fallback rules engine
-3. Citation/reference validator with online lookup support
-4. Reference-profile-aware formatting behavior
-5. Compare view and grouped accept/reject correction workflow
-6. Clean DOCX + highlighted DOCX export paths
-7. Runtime and admin diagnostics
+3. Autonomous Bibliography-Healing Engine (v1.2.0) with Crossref/OpenAlex/Serper remote lookup validation and Vancouver renumbering
+4. Side-by-Side Interactive Split-Canvas Editor (v1.2.0) with ratio-locked scroll synchronization and HSL-pulsed reference corrections
+5. Citation/reference validator with online lookup support
+6. Reference-profile-aware formatting behavior
+7. Compare view and grouped accept/reject correction workflow
+8. Clean DOCX + highlighted DOCX export paths
+9. Runtime and admin diagnostics
 
 ## 4) Technology Stack (Technical)
 
@@ -139,8 +141,9 @@ Task and processing:
 2. `/api/tasks/upload-text`
 3. `/api/tasks/upload-docx`
 4. `/api/tasks/<id>/process`
-5. `/api/tasks/<id>/apply-correction-group-decisions`
-6. `/api/tasks/<id>/download`
+5. `/api/tasks/<id>/heal-bibliography` (Phase A bibliography-healing async task)
+6. `/api/tasks/<id>/apply-correction-group-decisions`
+7. `/api/tasks/<id>/download`
 
 Admin:
 1. `/api/admin/users`
@@ -157,10 +160,10 @@ Diagnostics/ops:
 
 ## 9) Codebase Map (Where to Read First)
 
-1. `webapp.py`: auth/session, APIs, task lifecycle, admin APIs, bridge-compatible behavior
+1. `webapp.py`: auth/session, APIs, task lifecycle, admin APIs, bridge-compatible behavior, and healing task orchestration
 2. `document_processor.py`: orchestration layer for editing, AI routing, reporting, DOCX generation
-3. `chicago_editor.py`: core rules, normalization logic, citation/reference parsing, online validation
-4. `web/app-*.js`: frontend state, settings, admin interactions, rendering logic
+3. `chicago_editor.py`: core rules, reference normalization, citation/reference parsing, online validation, and bibliography-healing engine
+4. `web/app-*.js`: frontend state, settings, admin interactions, rendering logic (including `web/app-heal-bibliography.js` for compare-view splits)
 5. `tests/`: regression tests for rules, DOCX fidelity, and authenticated web API behavior
 
 ## 10) Non-Technical Operations Guide
@@ -191,12 +194,12 @@ This covers:
 ## 13) Current Risks and Next Work
 
 Current main risk:
-1. Packaging/release QA evidence still required for final sign-off across fresh machines
+1. Lack of full unit and integration tests for the new `v1.2.0-dev` bibliography-healing engine API
 
 Immediate roadmap focus:
-1. P0 package QA and sign-off
-2. P1 architecture cleanup to reduce duplicated desktop/web and bridge logic
-3. P2 deeper admin tooling and profile customization maturity
+1. P0: Add API + unit tests for bibliography healing engine (Phase C)
+2. P1: Eliminate duplicate request/processing/export logic between main wrapper and web bridge
+3. P2: Expand custom journal profiles beyond fixed Vancouver variants
 
 ## 14) Related Docs
 
