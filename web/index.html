@@ -259,13 +259,22 @@
                     <button class="btn-secondary" id="rerun-unresolved-btn" type="button" title="Rerun only unresolved references using safe settings; skips full manuscript rewrite.">
                         Rerun Unresolved Refs (Safe)
                     </button>
-                    <div class="save-buttons">
-                        <button class="btn-secondary" id="save-clean-btn" type="button" disabled>
-                            Save Clean Version
-                        </button>
-                        <button class="btn-secondary" id="save-highlight-btn" type="button" disabled>
-                            Save Redline Version
-                        </button>
+                    <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px; width: 100%;">
+                        <label class="field-label" style="margin-bottom: 0; font-weight: 600; color: #a8bddf; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase;">Export Format</label>
+                        <select id="export-mode-select" class="input-field" style="margin-bottom: 0; cursor: pointer; font-weight: 600; background-color: #1a1a2e; border: 1px solid #3b5284; border-radius: 6px; padding: 10px; color: #e1e8f5; outline: none; transition: border-color 0.2s;">
+                            <option value="clean">Clean DOCX (Standard Export)</option>
+                            <option value="highlighted">Visual Redline DOCX (Inline Highlights)</option>
+                            <option value="highlighted_comments">Interactive Comments DOCX (Clarity Bubbles)</option>
+                            <option value="track_changes">MS Word Native Tracked Changes (OXML)</option>
+                        </select>
+                        <div class="save-buttons" style="margin-top: 4px;">
+                            <button class="btn-primary" id="save-clean-btn" type="button" disabled style="padding: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: linear-gradient(135deg, #e94560 0%, #ff6b8a 100%); border: none; box-shadow: 0 4px 15px rgba(233, 69, 96, 0.3);">
+                                Download Document
+                            </button>
+                            <button class="btn-secondary" id="save-highlight-btn" type="button" disabled style="display: none;">
+                                Save Redline Version
+                            </button>
+                        </div>
                     </div>
                     <button class="btn-text" id="clear-btn" type="button">Clear</button>
                 </section>

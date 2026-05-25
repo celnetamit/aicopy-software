@@ -65,7 +65,13 @@
             dom.rerunUnresolvedBtn.addEventListener('click', () => getActions().rerunUnresolvedReferencesOnly && getActions().rerunUnresolvedReferencesOnly());
         }
         if (dom.saveCleanBtn) {
-            dom.saveCleanBtn.addEventListener('click', () => getActions().save_file && getActions().save_file('clean'));
+            dom.saveCleanBtn.addEventListener('click', () => {
+                const selectEl = document.getElementById('export-mode-select');
+                const selectedMode = selectEl ? selectEl.value : 'clean';
+                if (getActions().save_file) {
+                    getActions().save_file(selectedMode);
+                }
+            });
         }
         if (dom.saveHighlightBtn) {
             dom.saveHighlightBtn.addEventListener('click', () => getActions().save_file && getActions().save_file('highlighted'));

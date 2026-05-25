@@ -1199,31 +1199,32 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(payload.get("success"))
 
-        status, body, headers = self.client.request_bytes(
-            "GET",
-            f"/api/tasks/{task_id}/download-file",
-            query={"type": "clean"},
-        )
-        self.assertEqual(status, 200)
-        self.assertIn(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers.get("content-type", ""),
-        )
-        self.assertIn("attachment;", headers.get("content-disposition", ""))
+        for file_type in ["clean", "highlighted", "highlighted_comments", "track_changes"]:
+            status, body, headers = self.client.request_bytes(
+                "GET",
+                f"/api/tasks/{task_id}/download-file",
+                query={"type": file_type},
+            )
+            self.assertEqual(status, 200)
+            self.assertIn(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers.get("content-type", ""),
+            )
+            self.assertIn("attachment;", headers.get("content-disposition", ""))
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
-            output_path = output_handle.name
-        try:
-            with open(output_path, "wb") as outfile:
-                outfile.write(body)
-            self.assertTrue(zipfile.is_zipfile(output_path))
-            with zipfile.ZipFile(output_path) as archive:
-                names = set(archive.namelist())
-                self.assertIn("[Content_Types].xml", names)
-                self.assertIn("word/document.xml", names)
-                self.assertIn("word/_rels/document.xml.rels", names)
-        finally:
-            os.unlink(output_path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as output_handle:
+                output_path = output_handle.name
+            try:
+                with open(output_path, "wb") as outfile:
+                    outfile.write(body)
+                self.assertTrue(zipfile.is_zipfile(output_path))
+                with zipfile.ZipFile(output_path) as archive:
+                    names = set(archive.namelist())
+                    self.assertIn("[Content_Types].xml", names)
+                    self.assertIn("word/document.xml", names)
+                    self.assertIn("word/_rels/document.xml.rels", names)
+            finally:
+                os.unlink(output_path)
 
     def test_legacy_export_file_uses_docx_template_when_base64_source_is_supplied(self):
         self._login("writer@conwiz.in")

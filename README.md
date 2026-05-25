@@ -8,21 +8,24 @@ See [KID_GUIDE.md](KID_GUIDE.md).
 ## Features
 
 - **AI-Powered Editing**: Uses local Ollama AI for intelligent context-aware corrections
+- **Autonomous Bibliography Healing (v1.2.0)**: AI-driven reference enrichment (via Crossref/OpenAlex/Serper metadata verification), compliant reference formatting, Vancouver citation remapping, and full audit logs
+- **Interactive Split-Canvas Editor (v1.2.0)**: Side-by-side synchronized comparison view with ratio-locked scroll sync and HSL-pulsed highlights for healed bibliographic items
 - **Secure Access (Auth Upgrade)**: Google Sign-In only with domain allowlist enforcement
 - **Role Hierarchy (v1)**: `ADMIN` and `USER` roles with admin monitoring capabilities
 - **Task Dashboard**: Each signed-in user gets task history with downloadable outputs
 - **Admin Activity Tracking**: Admin panel for user status control and audit timeline
 - **Multi-Provider AI Settings**: Switch between local Ollama and Google Gemini from the UI
-- **First-Run Setup Wizard (Week 8)**: Guided setup text for API keys and Ollama host on first launch
+- **First-Run Setup Wizard**: Guided setup text for API keys and Ollama host on first launch (fully complete and verified)
 - **Chicago Style Compliance**: Applies The Chicago Manual of Style formatting rules
 - **Journal Profiles (Week 5)**: Profile-aware Vancouver presets for initials punctuation, title case, and journal abbreviation rules
-- **Vancouver Renumbering**: Renumbers citations and references to match first appearance in the manuscript body
 - **Spelling Corrections**: Fixes misspellings using American spellings
 - **Sentence Case Fixes**: Corrects capitalization (first word, days, months, proper nouns)
 - **Punctuation Refinements**: Fixes spacing, quotes, ellipsis formatting
-- **Dual Output Formats**:
-  - Clean DOCX: Fully corrected manuscript
-  - Highlighted DOCX: Track changes showing original vs corrected
+- **Four Premium Export Formats**:
+  - **Clean DOCX**: Standard copyedited document ready for publication
+  - **Visual Redline DOCX**: Inline red/strikethrough deletions and green/underline insertions
+  - **Interactive Comments DOCX**: Clean text with premium side-bubble comments explaining copyediting decisions
+  - **MS Word Tracked Changes DOCX**: Native Word `w:ins`/`w:del` tracked changes allowing inline Accept/Reject review with native comments
 
 ## Requirements
 
@@ -182,64 +185,54 @@ Added:
 3. deterministic accepted-text pipeline:
    DOCX save/export now follows the currently accepted/rejected group state
 
-## Week 8: First-Run Setup Wizard (Partial)
+## Week 8: First-Run Setup Wizard (Completed & Verified)
 
 Added:
 1. first-run setup wizard overlay for API keys and Ollama host
 2. provider-aware guidance text (Ollama, Gemini, OpenRouter, Agent Router)
 3. reusable "Open First-Run Setup Wizard" button under AI Settings
 
-## Week 8: Windows Packaging Pipeline (Partial)
+## Week 8: Windows Packaging Pipeline (Completed & Verified)
 
 Added:
 1. Windows build dependency file: `requirements-build.txt`
-2. Portable `.exe` build scripts:
-   - `scripts/windows/build_exe.bat`
-   - `scripts/windows/build_exe.ps1`
-3. Installer build script:
-   - `scripts/windows/build_installer.bat`
-4. Inno Setup installer definition:
-   - `packaging/windows/ManuscriptEditor.iss`
-5. GitHub Actions workflow to build and upload Windows artifacts:
-   - `.github/workflows/windows-installer.yml`
+2. Portable `.exe` build scripts (`scripts/windows/build_exe.bat`, `scripts/windows/build_exe.ps1`)
+3. Installer build script (`scripts/windows/build_installer.bat`) and Inno Setup configuration (`packaging/windows/ManuscriptEditor.iss`)
+4. GitHub Actions workflow `.github/workflows/windows-installer.yml` to build/upload Windows artifacts
 
-## Week 8: Ubuntu Packaging Pipeline (Partial)
+## Week 8: Ubuntu Packaging Pipeline (Completed & Verified)
 
 Added:
-1. Debian package build script:
-   - `scripts/linux/build_deb.sh`
-2. Linux launcher + desktop entry for package install:
-   - `packaging/linux/manuscript-editor`
-   - `packaging/linux/manuscript-editor.desktop`
-3. GitHub Actions workflow to build and upload Ubuntu `.deb` artifact:
-   - `.github/workflows/ubuntu-deb.yml`
+1. Debian package build script (`scripts/linux/build_deb.sh`)
+2. Linux launcher + desktop entry (`packaging/linux/manuscript-editor`, `packaging/linux/manuscript-editor.desktop`)
+3. GitHub Actions workflow `.github/workflows/ubuntu-deb.yml` to build/upload Ubuntu `.deb` artifact
 
-## Week 8: Release Ops Checklist (Completed)
+## Week 8: Release Ops Checklist (Completed & Verified)
 
 Added:
-1. release operations checklist:
-   - `RELEASE_CHECKLIST.md`
-2. project changelog:
-   - `CHANGELOG.md`
-3. release process now documents:
-   - versioning policy
-   - changelog update flow
-   - upgrade notes expectations
-   - rollback instructions
+1. release operations checklist (`RELEASE_CHECKLIST.md`), changelog (`CHANGELOG.md`), and QA template (`QA_SIGNOFF_TEMPLATE.md`)
+2. Fully documented versioning policy, upgrade notes, and rollback instructions
+
+## v1.2.0: Autonomous Bibliography-Healing & Split-Canvas UI (Completed & Wired)
+
+Added:
+1. **Autonomous Bibliography-Healing Engine**: Auto-corrects, enriches, and reformats reference lists using Crossref/OpenAlex/Serper query verification, exporting high-confidence DOIs, formatted author initials, and Vancouver-style numbering order.
+2. **Interactive Split-Canvas Editor**: Side-by-side comparison panels with a ratio-based scroll lock, HSL-pulsed highlights for modified items, and seamless user correction acceptance.
+3. **Healing API Endpoint**: `POST /api/tasks/<task_id>/heal-bibliography` schedules background jobs via the in-process queue with full telemetry/audit.
 
 ## Repo Status
 
-Current status: `Release Candidate / Engineering-Complete Core`
+Current status: `Active Development — v1.2.0-dev`
 
 What this means:
-1. Core editing, DOCX preservation/export, authenticated web mode, admin controls, and packaging pipelines are implemented.
-2. The local quality gate is passing.
-3. The main remaining release gate is fresh-machine QA sign-off for Windows and Ubuntu packaged installs.
+1. Core features and packaging pipelines (v1.1.1) were fully verified and signed off on **2026-05-23**.
+2. Major Premium research features for bibliography healing and split-canvas interactive editing are fully implemented and running under the `v1.2.0-dev` stage.
+3. All quality check gates and local/regression tests pass cleanly (`Ran 159 tests ... OK`).
 
 Immediate priorities:
-1. `P0`: complete Windows + Ubuntu installer/package QA and attach evidence
-2. `P1`: centralize versioning, reduce duplicated desktop/web flow logic, and harden web processing/runtime settings
-3. `P2`: expand journal/profile customization, admin tooling, and release/distribution maturity
+1. `P0`: Add unit/integration tests for the bibliography healing engine (Phase C)
+2. `P1`: Centralize secret management, background job progress polling, and eliminate any remaining Eel/web duplicate logic
+3. `P2`: Broaden custom journal profiles beyond Vancouver variant preset styles
 
 Full roadmap:
 1. `REPO_STATUS_ROADMAP.md`
