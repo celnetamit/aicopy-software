@@ -3151,7 +3151,7 @@ Corrected manuscript:"""
                 '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
                 '<w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
                 '</w:comments>'
-            )
+            ).encode('utf-8')
             comments_element = parse_xml(initial_xml)
             comments_part = Part(uri, content_type, comments_element, doc.part.package)
             doc.part.relate_to(
