@@ -157,6 +157,9 @@ def build_process_payload(
         "prose_only_diff": processor.build_prose_only_diff_text(original_text, corrected_text),
         "strict_cmos_issues": processor.build_strict_cmos_issues_summary(original_text, corrected_text, options or {}),
         "corrected_annotated_html": processor.build_foreign_annotated_html(corrected_text),
+        # Phase 1 rich-text channel: preserve a dedicated rich HTML field while
+        # keeping corrected_text as the single export source of truth.
+        "corrected_rich_html": processor.build_foreign_annotated_html(corrected_text),
         "corrections_report": corrections_report,
         "noun_report": processor.build_noun_report(corrected_text),
         "domain_report": processor.get_domain_report(),

@@ -1022,6 +1022,7 @@ def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
         "prose_only_diff": process_payload.get("prose_only_diff", ""),
         "strict_cmos_issues": process_payload.get("strict_cmos_issues") or {},
         "corrected_annotated_html": process_payload.get("corrected_annotated_html", ""),
+        "corrected_rich_html": process_payload.get("corrected_rich_html", process_payload.get("corrected_annotated_html", "")),
         "corrections_report": process_payload.get("corrections_report") or {},
         "noun_report": process_payload.get("noun_report") or {},
         "domain_report": process_payload.get("domain_report") or {},

@@ -263,6 +263,7 @@ function applyTaskDetailsToState(task) {
     authState.fileContent.corrected = String(task.corrected_text || '');
     authState.fileContent.fullCorrectedText = String(task.full_corrected_text || '');
     authState.fileContent.correctedAnnotatedHtml = String(reports.corrected_annotated_html || '');
+    authState.fileContent.correctedRichHtml = String(reports.corrected_rich_html || reports.corrected_annotated_html || '');
     authState.fileContent.redline = String(reports.redline_html || '');
     authState.fileContent.proseOnlyDiff = String(reports.prose_only_diff || '');
     authState.fileContent.strictCmosIssues = reports.strict_cmos_issues || null;

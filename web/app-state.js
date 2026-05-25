@@ -10,6 +10,7 @@ function createEmptyFileContent() {
         corrected: '',
         fullCorrectedText: '',
         correctedAnnotatedHtml: '',
+        correctedRichHtml: '',
         redline: '',
         proseOnlyDiff: '',
         strictCmosIssues: null,

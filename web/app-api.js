@@ -147,6 +147,11 @@
             },
             download: function (taskId, fileType) {
                 return getJson('/api/tasks/' + encodeURIComponent(taskId) + '/download?type=' + encodeURIComponent(fileType || 'clean'));
+            },
+            saveCorrectedRichHtml: function (taskId, correctedRichHtml) {
+                return postJson('/api/tasks/' + encodeURIComponent(taskId) + '/save-corrected-rich-html', {
+                    corrected_rich_html: String(correctedRichHtml || '')
+                });
             }
         },
 
@@ -183,6 +188,7 @@
                     file_type: input.file_type || 'clean',
                     original_text: input.original_text || '',
                     corrected_text: input.corrected_text || '',
+                    corrected_rich_html: input.corrected_rich_html || '',
                     file_name: input.file_name || ''
                 });
             },

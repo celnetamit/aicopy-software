@@ -372,6 +372,62 @@ def register_task_routes(app, deps):
         except Exception as exc:
             return deps.json_response(deps.error_payload("TASK_DECISION_APPLY_FAILED", str(exc)), status=500, session_id=context.session_id)
 
+    @app.post("/api/tasks/<task_id>/save-corrected-rich-html")
+    @deps.require_auth
+    def api_tasks_save_corrected_rich_html(task_id: str):
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        task, error = deps.get_owned_task_or_error(context, task_id)
+        if error is not None:
+            return error
+
+        corrected_rich_html = str(payload.get("corrected_rich_html", "") or "")
+        max_rich_html_chars = int(deps.max_text_chars) * 4
+        if len(corrected_rich_html) > max_rich_html_chars:
+            return deps.json_response(
+                deps.error_payload(
+                    "TASK_RICH_HTML_TOO_LARGE",
+                    f"Corrected rich HTML exceeds maximum size of {max_rich_html_chars} characters",
+                ),
+                status=413,
+                session_id=context.session_id,
+            )
+
+        reports = task.get("reports") if isinstance(task.get("reports"), dict) else {}
+        next_reports = dict(reports)
+        next_reports["corrected_rich_html"] = corrected_rich_html
+
+        updated = deps.store.update_task_corrected_text(
+            task_id=str(task.get("id") or task_id),
+            user_id=context.user_id,
+            corrected_text=str(task.get("corrected_text") or ""),
+            reports=next_reports,
+        )
+        if updated is None:
+            return deps.json_response(
+                deps.error_payload("TASK_RICH_HTML_SAVE_FAILED", "Task update failed"),
+                status=500,
+                session_id=context.session_id,
+            )
+
+        deps.record_audit(
+            event_type="task_corrected_rich_html_saved",
+            actor_user_id=context.user_id,
+            entity_type="task",
+            entity_id=str(task.get("id") or task_id),
+            metadata={"rich_html_chars": len(corrected_rich_html)},
+        )
+
+        return deps.json_response(
+            {
+                "success": True,
+                "task_id": str(task.get("id") or task_id),
+                "saved": True,
+                "corrected_rich_html_chars": len(corrected_rich_html),
+            },
+            session_id=context.session_id,
+        )
+
     @app.get("/api/tasks/<task_id>/download")
     @deps.require_auth
     def api_tasks_download(task_id: str):

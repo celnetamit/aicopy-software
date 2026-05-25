@@ -2812,6 +2812,47 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     border-color: rgba(47, 191, 113, 0.25);
 }
 
+.pane-header-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pane-mini-save-indicator {
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    color: #dbe6ff;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.pane-mini-save-indicator.hidden {
+    opacity: 0;
+    transform: translateY(-2px);
+    pointer-events: none;
+}
+
+.pane-mini-save-indicator.saving {
+    color: #ffe29a;
+    border-color: rgba(255, 226, 154, 0.45);
+    background: rgba(255, 226, 154, 0.12);
+}
+
+.pane-mini-save-indicator.saved {
+    color: #b9f7db;
+    border-color: rgba(62, 201, 143, 0.5);
+    background: rgba(62, 201, 143, 0.14);
+}
+
+.pane-mini-save-indicator.error {
+    color: #ffb8bf;
+    border-color: rgba(255, 122, 135, 0.55);
+    background: rgba(255, 122, 135, 0.14);
+}
+
 .pane-content {
     flex: 1;
     overflow-y: auto;

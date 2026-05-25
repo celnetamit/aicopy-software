@@ -180,6 +180,7 @@
                 file_type: fileType,
                 original_text: input.original_text || '',
                 corrected_text: input.corrected_text || '',
+                corrected_rich_html: input.corrected_rich_html || '',
                 file_name: input.file_name || ''
             });
         }),

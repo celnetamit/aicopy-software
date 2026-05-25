@@ -3,6 +3,80 @@ const previewState = appPreviewRoot.state;
 const previewDom = appPreviewRoot.dom;
 const previewHelpers = appPreviewRoot.helpers;
 const previewConstants = appPreviewRoot.constants;
+const richHtmlAutosaveState = {
+    timerId: null,
+    lastSavedTaskId: '',
+    lastSavedHtml: '',
+    hideTimerId: null
+};
+
+function setRichHtmlSaveIndicator(status) {
+    const indicator = document.getElementById('rich-html-save-indicator');
+    if (!indicator) {
+        return;
+    }
+    indicator.classList.remove('saving', 'saved', 'error', 'hidden');
+    if (richHtmlAutosaveState.hideTimerId) {
+        clearTimeout(richHtmlAutosaveState.hideTimerId);
+        richHtmlAutosaveState.hideTimerId = null;
+    }
+    if (status === 'saving') {
+        indicator.textContent = 'Saving...';
+        indicator.classList.add('saving');
+        return;
+    }
+    if (status === 'saved') {
+        indicator.textContent = 'Saved';
+        indicator.classList.add('saved');
+        richHtmlAutosaveState.hideTimerId = window.setTimeout(() => {
+            indicator.classList.add('hidden');
+        }, 1400);
+        return;
+    }
+    if (status === 'error') {
+        indicator.textContent = 'Save failed';
+        indicator.classList.add('error');
+        return;
+    }
+    indicator.classList.add('hidden');
+}
+
+function queueCorrectedRichHtmlSave(taskId, correctedRichHtml) {
+    const runtime = appPreviewRoot.editorRuntime || {};
+    if (typeof runtime.callApiOrEel !== 'function') {
+        return;
+    }
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId) {
+        return;
+    }
+    const nextHtml = String(correctedRichHtml || '');
+    if (richHtmlAutosaveState.lastSavedTaskId === safeTaskId && richHtmlAutosaveState.lastSavedHtml === nextHtml) {
+        return;
+    }
+    if (richHtmlAutosaveState.timerId) {
+        clearTimeout(richHtmlAutosaveState.timerId);
+    }
+    setRichHtmlSaveIndicator('saving');
+    richHtmlAutosaveState.timerId = window.setTimeout(() => {
+        runtime.callApiOrEel(
+            (api) => api.tasks && typeof api.tasks.saveCorrectedRichHtml === 'function'
+                ? api.tasks.saveCorrectedRichHtml(safeTaskId, nextHtml)
+                : null,
+            '',
+            [],
+            (response) => {
+                if (response && response.success) {
+                    richHtmlAutosaveState.lastSavedTaskId = safeTaskId;
+                    richHtmlAutosaveState.lastSavedHtml = nextHtml;
+                    setRichHtmlSaveIndicator('saved');
+                } else {
+                    setRichHtmlSaveIndicator('error');
+                }
+            }
+        );
+    }, 800);
+}
 
 function parseCustomTerms(raw) {
     const source = String(raw || '');
@@ -1319,6 +1393,8 @@ function initializeInteractiveSplitCanvas() {
         
         // Save the updated HTML version with inline formatting
         previewState.fileContent.correctedAnnotatedHtml = currentHtml;
+        previewState.fileContent.correctedRichHtml = currentHtml;
+        queueCorrectedRichHtmlSave(previewState.fileContent.taskId || '', currentHtml);
         
         // Convert to plain text to sync with previewState.fileContent.corrected
         const tempDiv = document.createElement('div');
@@ -1334,6 +1410,10 @@ function initializeInteractiveSplitCanvas() {
                 if (node === rightPane || node.contains(rightPane)) {
                     document.removeEventListener('selectionchange', handleSelectionChange);
                     wysiwygToolbar.remove();
+                    if (richHtmlAutosaveState.timerId) {
+                        clearTimeout(richHtmlAutosaveState.timerId);
+                        richHtmlAutosaveState.timerId = null;
+                    }
                     observer.disconnect();
                 }
             });
@@ -1403,7 +1483,10 @@ function renderCurrentPreview() {
                 <div class="split-pane pane-right">
                     <div class="pane-header glassmorphic">
                         <span class="pane-title">Interactive Corrected & Redline</span>
-                        <div class="pane-badge success">WYSIWYG Editor</div>
+                        <div class="pane-header-meta">
+                            <span class="pane-mini-save-indicator hidden" id="rich-html-save-indicator">Saved</span>
+                            <div class="pane-badge success">WYSIWYG Editor</div>
+                        </div>
                     </div>
                     <div class="pane-content scroll-syncable" id="pane-right-content" contenteditable="true" spellcheck="false">
                         ${redlineHtml}
@@ -1437,7 +1520,7 @@ function renderCurrentPreview() {
     const tabValue = previewState.currentTab === 'redline'
         ? (previewState.fileContent.redline || previewState.fileContent.corrected || '')
         : (previewState.currentTab === 'corrected' ? (previewState.fileContent.corrected || '') : (previewState.fileContent[previewState.currentTab] || ''));
-    const correctedHtml = previewState.fileContent.correctedAnnotatedHtml || '';
+    const correctedHtml = previewState.fileContent.correctedRichHtml || previewState.fileContent.correctedAnnotatedHtml || '';
 
     if (previewState.currentViewMode === 'plain') {
         preview.textContent = previewState.currentTab === 'redline'

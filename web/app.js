@@ -271,6 +271,7 @@ function handleLoadResponse(displayName) {
             mainState.fileContent.corrected = '';
             mainState.fileContent.fullCorrectedText = '';
             mainState.fileContent.correctedAnnotatedHtml = '';
+            mainState.fileContent.correctedRichHtml = '';
             mainState.fileContent.redline = '';
             mainState.fileContent.corrections = null;
             mainState.fileContent.nounReport = null;
@@ -415,6 +416,7 @@ function applyProcessResponseToState(response, options = {}) {
     mainState.fileContent.original = response.original;
     mainState.fileContent.fullCorrectedText = response.full_corrected_text || response.text || '';
     mainState.fileContent.correctedAnnotatedHtml = response.corrected_annotated_html || '';
+    mainState.fileContent.correctedRichHtml = response.corrected_rich_html || response.corrected_annotated_html || '';
     mainState.fileContent.redline = response.redline_html || '';
     mainState.fileContent.proseOnlyDiff = response.prose_only_diff || '';
     mainState.fileContent.strictCmosIssues = response.strict_cmos_issues || null;
@@ -957,6 +959,7 @@ function save_file(file_type) {
         file_type,
         original_text: mainState.fileContent.original || '',
         corrected_text: mainState.fileContent.corrected || '',
+        corrected_rich_html: mainState.fileContent.correctedRichHtml || '',
         file_name: mainState.fileContent.fileName || 'manuscript.docx'
     };
     const called = callApiOrEel(

@@ -205,6 +205,7 @@ def register_legacy_routes(app, deps):
 
             original_text = str(payload.get("original_text", "") or "")
             corrected_text = str(payload.get("corrected_text", "") or "")
+            _corrected_rich_html = str(payload.get("corrected_rich_html", "") or "")
             file_name = str(payload.get("file_name", "manuscript.docx") or "manuscript.docx")
             source_type = str(payload.get("source_type", "text") or "text").strip().lower()
             source_docx_base64 = str(payload.get("source_docx_base64", "") or "").strip()
