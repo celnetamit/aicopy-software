@@ -53,7 +53,7 @@ class ExportSaveTelemetryTests(unittest.TestCase):
             output_path = handle.name
 
         try:
-            main.processor.generate_highlighted_docx("old text", "new text", output_path)
+            main.processor.generate_highlighted_docx("old text", "new text", output_path, export_mode="track_changes")
             with zipfile.ZipFile(output_path, "r") as package:
                 document_xml = package.read("word/document.xml").decode("utf-8", errors="ignore")
                 settings_xml = package.read("word/settings.xml").decode("utf-8", errors="ignore")
@@ -143,7 +143,7 @@ class ExportSaveTelemetryTests(unittest.TestCase):
         corrected = "P1\nINSERTED MID\nP2\nP3"
 
         try:
-            main.processor.generate_highlighted_docx("P1\nP2\nP3", corrected, output_path, source_docx_path=source_path)
+            main.processor.generate_highlighted_docx("P1\nP2\nP3", corrected, output_path, source_docx_path=source_path, export_mode="track_changes")
             doc = Document(output_path)
             texts = [paragraph.text for paragraph in doc.paragraphs]
             self.assertEqual(texts[0], "P1")

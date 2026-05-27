@@ -80,16 +80,17 @@ function setStatus(message, type) {
 }
 
 function refreshProcessButtonState() {
-    const canProcess = !(mainState.isFileLoading || mainState.isProcessingDocument || !String(mainState.fileContent.original || '').trim());
+    const fileContent = mainState.fileContent || {};
+    const canProcess = !(mainState.isFileLoading || mainState.isProcessingDocument || !String(fileContent.original || '').trim());
     if (mainDom.processBtn) {
         mainDom.processBtn.disabled = !canProcess;
     }
     if (mainDom.autopilotBtn) {
-        const hasTask = !!String(mainState.fileContent.taskId || '').trim();
+        const hasTask = !!String(fileContent.taskId || '').trim();
         mainDom.autopilotBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !hasTask;
     }
     if (mainDom.rerunUnresolvedBtn) {
-        const hasTask = !!String(mainState.fileContent.taskId || '').trim();
+        const hasTask = !!String(fileContent.taskId || '').trim();
         mainDom.rerunUnresolvedBtn.disabled = mainState.isFileLoading || mainState.isProcessingDocument || !hasTask;
     }
 }
@@ -408,7 +409,6 @@ function switch_tab(tab) {
         } catch (err) {
             mainPreview.renderCurrentPreview();
         }
-        mainPreview.renderCurrentPreview();
         return;
     }
     mainPreview.renderCurrentPreview();
@@ -814,7 +814,7 @@ function trigger_autopilot() {
         (api) => (api.tasks && typeof api.tasks.autopilot === 'function')
             ? api.tasks.autopilot(taskId, options)
             : null,
-        '',
+        null,
         [],
         function (response) {
             if (response && response.success && response.queued) {
@@ -1048,7 +1048,7 @@ appMain.editorRuntime = {
     switch_tab
 };
 
-appMain.actions = {
+appMain.actions = Object.assign({}, appMain.actions || {}, {
     handleFile,
     handleLoadResponse,
     switch_tab,
@@ -1092,7 +1092,7 @@ appMain.actions = {
     applyAllGroupDecisions,
     save_file,
     clear_all
-};
+});
 
 window.setGroupDecision = setGroupDecision;
 window.applyAllGroupDecisions = applyAllGroupDecisions;

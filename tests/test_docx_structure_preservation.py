@@ -584,7 +584,7 @@ class DocxStructurePreservationTests(unittest.TestCase):
                 "Body paragraph updated.",
             ])
 
-            self.processor.generate_highlighted_docx(original, corrected, output_path)
+            self.processor.generate_highlighted_docx(original, corrected, output_path, export_mode="track_changes")
 
             out_doc = Document(output_path)
             self.assertEqual(out_doc.paragraphs[0].style.name, "Heading 1")

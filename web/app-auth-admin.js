@@ -315,7 +315,9 @@ function applyTaskDetailsToState(task) {
     if (authDom.saveCleanBtn) authDom.saveCleanBtn.disabled = !processed;
     if (authDom.saveHighlightBtn) authDom.saveHighlightBtn.disabled = !processed;
     renderAutopilotStatusPanel(reports);
-    appAuth.actions.refreshProcessButtonState();
+    if (appAuth.actions && typeof appAuth.actions.refreshProcessButtonState === 'function') {
+        appAuth.actions.refreshProcessButtonState();
+    }
     if (appAuth.actions && typeof appAuth.actions.renderFallbackInsightsFromCurrentState === 'function') {
         appAuth.actions.renderFallbackInsightsFromCurrentState();
     }
@@ -325,7 +327,9 @@ function applyTaskDetailsToState(task) {
     if (appAuth.actions && typeof appAuth.actions.renderRunStagesFromState === 'function') {
         appAuth.actions.renderRunStagesFromState();
     }
-    appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
+    if (appAuth.actions && typeof appAuth.actions.switch_tab === 'function') {
+        appAuth.actions.switch_tab(processed ? 'corrected' : 'original');
+    }
     renderTaskHistory();
     renderAdminDocxStructureSummary();
 }

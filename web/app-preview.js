@@ -63,7 +63,7 @@ function queueCorrectedRichHtmlSave(taskId, correctedRichHtml) {
             (api) => api.tasks && typeof api.tasks.saveCorrectedRichHtml === 'function'
                 ? api.tasks.saveCorrectedRichHtml(safeTaskId, nextHtml)
                 : null,
-            '',
+            null,
             [],
             (response) => {
                 if (response && response.success) {
@@ -389,7 +389,7 @@ function renderRichDocument(content, isHtmlInput) {
         }
         if (segment.kind === 'equation') {
             closeList();
-            html += `<div class="doc-equation">${segment.rawLine}</div>`;
+            html += `<div class="doc-equation">${isHtmlInput ? segment.rawLine : previewHelpers.escapeHtml(segment.rawLine)}</div>`;
             continue;
         }
         const rawLine = segment.rawLine;
@@ -404,7 +404,7 @@ function renderRichDocument(content, isHtmlInput) {
         if (headingInfo) {
             closeList();
             const tag = headingInfo.level === 1 ? 'h1' : headingInfo.level === 2 ? 'h2' : headingInfo.level === 3 ? 'h3' : 'h4';
-            html += `<${tag}>${rawLine}</${tag}>`;
+            html += `<${tag}>${isHtmlInput ? rawLine : previewHelpers.escapeHtml(rawLine)}</${tag}>`;
             continue;
         }
 
@@ -428,7 +428,7 @@ function renderRichDocument(content, isHtmlInput) {
         }
 
         closeList();
-        html += `<p>${rawLine}</p>`;
+        html += `<p>${isHtmlInput ? rawLine : previewHelpers.escapeHtml(rawLine)}</p>`;
         headingState.sawBodyParagraph = true;
     }
 
@@ -491,7 +491,7 @@ function renderPageDocument(content, isHtmlInput) {
             blocks.push({
                 kind: 'equation',
                 plain: segment.plainLine || '',
-                html: `<div class="doc-equation doc-equation-page">${segment.rawLine}</div>`
+                html: `<div class="doc-equation doc-equation-page">${isHtmlInput ? segment.rawLine : previewHelpers.escapeHtml(segment.rawLine)}</div>`
             });
             continue;
         }
@@ -506,7 +506,7 @@ function renderPageDocument(content, isHtmlInput) {
             blocks.push({
                 kind: headingInfo.level === 1 ? 'h1' : headingInfo.level === 2 ? 'h2' : headingInfo.level === 3 ? 'h3' : 'h4',
                 plain: plainLine,
-                html: rawLine
+                html: isHtmlInput ? rawLine : previewHelpers.escapeHtml(rawLine)
             });
             continue;
         }
@@ -526,7 +526,7 @@ function renderPageDocument(content, isHtmlInput) {
             blocks.push({ kind: 'bullet', plain: bulletMatch[1], marker: '•', html: lineBody(rawLine, plainLine, /^[-*•]\s+/) });
             continue;
         }
-        blocks.push({ kind: 'p', plain: plainLine, html: rawLine });
+        blocks.push({ kind: 'p', plain: plainLine, html: isHtmlInput ? rawLine : previewHelpers.escapeHtml(rawLine) });
         headingState.sawBodyParagraph = true;
     }
     const unmatchedImages = previewImages.slice(previewImageIndex);
@@ -1448,16 +1448,17 @@ function initializeInteractiveSplitCanvas() {
     // Bind input listener to rightPane to sync document changes back to app state in real time
     rightPane.addEventListener('input', () => {
         const currentHtml = rightPane.innerHTML;
+        const sanitized = currentHtml.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '').replace(/\son\w+=("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s>]+)/gi, '');
         
         // Save the updated HTML version with inline formatting
-        previewState.fileContent.correctedAnnotatedHtml = currentHtml;
-        previewState.fileContent.correctedRichHtml = currentHtml;
-        queueCorrectedRichHtmlSave(previewState.fileContent.taskId || '', currentHtml);
+        previewState.fileContent.correctedAnnotatedHtml = sanitized;
+        previewState.fileContent.correctedRichHtml = sanitized;
+        queueCorrectedRichHtmlSave(previewState.fileContent.taskId || '', sanitized);
         
         // Convert to plain text to sync with previewState.fileContent.corrected
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = currentHtml;
-        const plainText = tempDiv.innerText || tempDiv.textContent || '';
+        const plainText = tempDiv.textContent || '';
         previewState.fileContent.corrected = plainText;
     });
 

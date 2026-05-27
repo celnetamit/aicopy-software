@@ -3142,10 +3142,11 @@ Corrected manuscript:"""
                 break
                 
         if comments_part is None:
-            from docx.opc.part import Part
+            from docx.opc.part import XmlPart
+            from docx.opc.packuri import PackURI
             from docx.oxml import parse_xml
             
-            uri = "/word/comments.xml"
+            uri = PackURI("/word/comments.xml")
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"
             initial_xml = (
                 '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -3153,7 +3154,7 @@ Corrected manuscript:"""
                 '</w:comments>'
             ).encode('utf-8')
             comments_element = parse_xml(initial_xml)
-            comments_part = Part(uri, content_type, comments_element, doc.part.package)
+            comments_part = XmlPart(uri, content_type, comments_element, doc.part.package)
             doc.part.relate_to(
                 comments_part,
                 "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"

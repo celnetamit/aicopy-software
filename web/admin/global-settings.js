@@ -186,7 +186,7 @@ function syncAdminValidationInputs(forceOverwrite) {
     const nextModel = getSavedValidationModelForProvider(provider, ai);
     const nextKey = getSavedValidationKeyForProvider(provider, ai);
     const nextHost = provider === 'ollama'
-        ? String(ai.ollama_host || adminGlobalDom.adminAiOllamaHostInput?.value || 'http://localhost:11434')
+        ? String(ai.ollama_host || (adminGlobalDom.adminAiOllamaHostInput ? adminGlobalDom.adminAiOllamaHostInput.value : '') || 'http://localhost:11434')
         : getAdminProviderEndpoint(provider, adminGlobalDom.adminAiOllamaHostInput ? adminGlobalDom.adminAiOllamaHostInput.value : '');
 
     if (adminGlobalDom.adminAiModelInput && (forceOverwrite || !String(adminGlobalDom.adminAiModelInput.value || '').trim())) {

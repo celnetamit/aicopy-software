@@ -22,7 +22,7 @@
 
     function getCurrentTaskId() {
         // Prefer state-stored task id, fall back to data attribute on <body>
-        if (previewState && previewState.taskId) return String(previewState.taskId);
+        if (previewState && previewState.fileContent && previewState.fileContent.taskId) return String(previewState.fileContent.taskId);
         const body = document.body;
         if (body && body.dataset && body.dataset.taskRouteId) return String(body.dataset.taskRouteId);
         return null;
@@ -142,12 +142,15 @@
             btn.querySelector('.btn-icon').textContent = '↻';
         }
         showProgressOverlay(0, 'Submitting to Healing Engine...');
-        fetch('/api/tasks/' + taskId + '/heal-bibliography', {
+        fetch('/api/tasks/' + encodeURIComponent(taskId) + '/heal-bibliography', {
             method: 'POST',
             headers: authHeaders(),
             body: JSON.stringify({ options: buildHealingOptions() })
         })
-            .then(function (res) { return res.json(); })
+            .then(function (res) {
+                if (!res.ok) throw new Error('Server returned ' + res.status);
+                return res.json();
+            })
             .then(function (data) {
                 if (!data || !data.success) {
                     throw new Error((data && data.error && data.error.message) || 'Healing request failed.');
@@ -187,8 +190,11 @@
             return;
         }
         setTimeout(function () {
-            fetch('/api/tasks/' + taskId + '/process-status', { headers: authHeaders() })
-                .then(function (res) { return res.json(); })
+            fetch('/api/tasks/' + encodeURIComponent(taskId) + '/process-status', { headers: authHeaders() })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Server returned ' + res.status);
+                    return res.json();
+                })
                 .then(function (data) {
                     const job = data && data.job ? data.job : {};
                     const pct = typeof job.progress_percent === 'number' ? job.progress_percent : null;
@@ -222,8 +228,11 @@
     // -------------------------------------------------------------------------
 
     function onHealingSucceeded(taskId) {
-        fetch('/api/tasks/' + taskId, { headers: authHeaders() })
-            .then(function (res) { return res.json(); })
+        fetch('/api/tasks/' + encodeURIComponent(taskId), { headers: authHeaders() })
+            .then(function (res) {
+                if (!res.ok) throw new Error('Server returned ' + res.status);
+                return res.json();
+            })
             .then(function (data) {
                 const task = data && data.task ? data.task : {};
                 const healedText = task.full_corrected_text || task.corrected_text || '';

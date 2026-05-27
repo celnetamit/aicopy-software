@@ -2006,6 +2006,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("not installed", message)
 
+        ok, message = webapp._validate_ai_provider_runtime("ollama", "llama3.1:latest", "", "http://localhost:11434")
         self.assertTrue(ok)
         self.assertIn("with model llama3.1:latest", message)
 

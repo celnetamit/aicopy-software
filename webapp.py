@@ -1236,11 +1236,12 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
             )
     processor.set_progress_callback(progress_callback)
     original_text = str(task.get("original_text") or "")
+    previous_full_corrected = str(task.get("full_corrected_text") or "")
     processing_source_text = original_text
     safe_options = dict(options or {})
     if bool(safe_options.get("unresolved_reference_only", False)):
         processing_source_text = (
-            str(task.get("full_corrected_text") or "")
+            previous_full_corrected
             or str(task.get("corrected_text") or "")
             or original_text
         )
@@ -1253,8 +1254,13 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         ai_opts["enabled"] = False
         safe_options["ai"] = ai_opts
 
-    full_corrected_text = processor.process_text(processing_source_text, safe_options)
-    corrected_text = full_corrected_text
+    result = processor.process_text(processing_source_text, safe_options)
+    if bool(safe_options.get("unresolved_reference_only", False)):
+        corrected_text = result
+        full_corrected_text = previous_full_corrected or result
+    else:
+        full_corrected_text = result
+        corrected_text = result
 
     process_payload = _build_process_payload(
         processor=processor,

@@ -173,23 +173,23 @@ function renderJournalProfiles(profiles) {
         const journalNames = profile.journal_abbrev === "nlm" ? "NLM Abbreviations" : "Full Names";
 
         html += `
-            <div class="catalog-card" data-id="${adminReferenceRoot.helpers.escapeHtml(profile.id || '')}">
+            <div class="catalog-card" data-id="${appAdminReferenceRoot.helpers.escapeHtml(profile.id || '')}">
                 <div class="catalog-card-header">
-                    <h4 class="catalog-card-title">${adminReferenceRoot.helpers.escapeHtml(profile.label || profile.id || 'Unnamed Journal')}</h4>
-                    <span class="catalog-card-id">${adminReferenceRoot.helpers.escapeHtml(profile.id || '')}</span>
+                    <h4 class="catalog-card-title">${appAdminReferenceRoot.helpers.escapeHtml(profile.label || profile.id || 'Unnamed Journal')}</h4>
+                    <span class="catalog-card-id">${appAdminReferenceRoot.helpers.escapeHtml(profile.id || '')}</span>
                 </div>
                 <div class="catalog-card-body">
                     <div class="catalog-rule-item">
                         <span class="catalog-rule-label">Author Initials:</span>
-                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(authorInitials)}</span>
+                        <span class="catalog-rule-value">${appAdminReferenceRoot.helpers.escapeHtml(authorInitials)}</span>
                     </div>
                     <div class="catalog-rule-item">
                         <span class="catalog-rule-label">Title Case:</span>
-                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(titleCase)}</span>
+                        <span class="catalog-rule-value">${appAdminReferenceRoot.helpers.escapeHtml(titleCase)}</span>
                     </div>
                     <div class="catalog-rule-item">
                         <span class="catalog-rule-label">Journal Names:</span>
-                        <span class="catalog-rule-value">${adminReferenceRoot.helpers.escapeHtml(journalNames)}</span>
+                        <span class="catalog-rule-value">${appAdminReferenceRoot.helpers.escapeHtml(journalNames)}</span>
                     </div>
                     
                     ${score !== null ? `
@@ -209,7 +209,7 @@ function renderJournalProfiles(profiles) {
                     <div class="catalog-card-footer">
                         <span class="catalog-score-label" style="font-size: 11px;">Identified Issues (${profile.validation_messages.length}):</span>
                         <ul class="catalog-issues-list">
-                            ${profile.validation_messages.map(msg => `<li>${adminReferenceRoot.helpers.escapeHtml(msg)}</li>`).join('')}
+                            ${profile.validation_messages.map(msg => `<li>${appAdminReferenceRoot.helpers.escapeHtml(msg)}</li>`).join('')}
                         </ul>
                     </div>
                 ` : ''}
@@ -246,7 +246,7 @@ function refreshJournalProfiles() {
                 if (adminReferenceDom.adminCatalogGrid) {
                     adminReferenceDom.adminCatalogGrid.innerHTML = `
                         <div style="grid-column: 1 / -1; text-align: center; padding: 24px; color: #ffb8c2; font-size: 13px;">
-                            ${adminReferenceRoot.helpers.escapeHtml(message)}
+                            ${appAdminReferenceRoot.helpers.escapeHtml(message)}
                         </div>
                     `;
                 }
