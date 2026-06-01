@@ -68,6 +68,31 @@ def _build_ai_prompt(manuscript_excerpt: str, journal_name: str, matched_signals
     )
 
 
+def _build_ai_ranking_prompt(manuscript_text: str, candidates: Sequence[Dict[str, Any]]) -> str:
+    packed = []
+    for item in candidates:
+        packed.append(
+            {
+                "journal_id": str(item.get("journal_id") or ""),
+                "journal_name": str(item.get("journal_name") or ""),
+                "scope": str(item.get("scope") or ""),
+                "keywords": item.get("keywords") if isinstance(item.get("keywords"), list) else [],
+                "subject_areas": item.get("subject_areas") if isinstance(item.get("subject_areas"), list) else [],
+                "article_types": item.get("article_types") if isinstance(item.get("article_types"), list) else [],
+            }
+        )
+    return (
+        "You are an expert manuscript-to-journal matching assistant.\n"
+        "Read the manuscript and rank the top 3 best-fit journals from the candidate list.\n"
+        "Return strict JSON only with this shape: "
+        "{\"top\":[{\"journal_id\":\"...\",\"reason\":\"...\"},...]} "
+        "where top has at most 3 items in rank order.\n"
+        "Keep each reason concise (max 24 words).\n\n"
+        f"MANUSCRIPT:\n{manuscript_text[:24000]}\n\n"
+        f"CANDIDATES_JSON:\n{json.dumps(packed, ensure_ascii=False)}"
+    )
+
+
 def _ai_rationale_from_provider(prompt: str, ai_settings: Dict[str, Any]) -> Optional[str]:
     provider = str(ai_settings.get("provider", "") or "").strip().lower()
     model = str(ai_settings.get("model", "") or "").strip()
@@ -146,6 +171,32 @@ def _ai_rationale_from_provider(prompt: str, ai_settings: Dict[str, Any]) -> Opt
     return None
 
 
+def _parse_ai_rank_json(text: str) -> List[Dict[str, str]]:
+    if not text:
+        return []
+    raw = str(text).strip()
+    # try direct JSON
+    for candidate in (raw, raw.replace("```json", "").replace("```", "").strip()):
+        try:
+            obj = json.loads(candidate)
+            top = obj.get("top") if isinstance(obj, dict) else None
+            if isinstance(top, list):
+                out: List[Dict[str, str]] = []
+                for row in top:
+                    if not isinstance(row, dict):
+                        continue
+                    jid = str(row.get("journal_id") or "").strip()
+                    reason = str(row.get("reason") or "").strip()
+                    if not jid:
+                        continue
+                    out.append({"journal_id": jid, "reason": reason})
+                if out:
+                    return out
+        except Exception:
+            continue
+    return []
+
+
 def recommend_top_journals(
     *,
     journals: Sequence[Dict[str, Any]],
@@ -217,13 +268,22 @@ def recommend_top_journals(
             matched_signals.append("Open access")
         matched_signals.append(f"Reference readiness score {reference_readiness:.1f}/10")
 
-        scored.append((score, {
-            "journal_id": str(journal.get("id") or ""),
-            "journal_name": name,
-            "score": round(score, 2),
-            "matched_signals": matched_signals,
-            "rationale": "",
-        }))
+        scored.append(
+            (
+                score,
+                {
+                    "journal_id": str(journal.get("id") or ""),
+                    "journal_name": name,
+                    "score": round(score, 2),
+                    "matched_signals": matched_signals,
+                    "rationale": "",
+                    "scope": scope,
+                    "keywords": keywords,
+                    "subject_areas": subject_areas,
+                    "article_types": article_types,
+                },
+            )
+        )
 
     scored.sort(key=lambda item: item[0], reverse=True)
     top_results = [item[1] for item in scored[: max(1, int(top_k))]]
@@ -233,11 +293,37 @@ def recommend_top_journals(
     ai_conf = ai_settings if isinstance(ai_settings, dict) else {}
     ai_enabled = bool(ai_conf.get("enabled", False))
 
+    if ai_enabled:
+        try:
+            shortlist = [item[1] for item in scored[: min(15, len(scored))]]
+            ranking_prompt = _build_ai_ranking_prompt(manuscript, shortlist)
+            ranking_text = _ai_rationale_from_provider(ranking_prompt, ai_conf)
+            ranked = _parse_ai_rank_json(ranking_text or "")
+            if ranked:
+                by_id = {str(item.get("journal_id") or ""): item for item in shortlist}
+                ai_top: List[Dict[str, Any]] = []
+                for row in ranked[:3]:
+                    jid = str(row.get("journal_id") or "")
+                    if jid in by_id:
+                        base = dict(by_id[jid])
+                        base["rationale"] = str(row.get("reason") or "").strip()
+                        ai_top.append(base)
+                if ai_top:
+                    ai_used = True
+                    top_results = ai_top
+            else:
+                ai_warning = "AI ranking unavailable; used deterministic ranking."
+        except Exception:
+            ai_warning = "AI ranking failed; used deterministic ranking."
+
     for entry in top_results:
         if ai_enabled:
             try:
-                prompt = _build_ai_prompt(manuscript[:1200], entry["journal_name"], entry.get("matched_signals") or [])
-                ai_text = _ai_rationale_from_provider(prompt, ai_conf)
+                if str(entry.get("rationale") or "").strip():
+                    ai_text = str(entry.get("rationale") or "").strip()
+                else:
+                    prompt = _build_ai_prompt(manuscript[:1200], entry["journal_name"], entry.get("matched_signals") or [])
+                    ai_text = _ai_rationale_from_provider(prompt, ai_conf)
                 if ai_text:
                     entry["rationale"] = ai_text
                     ai_used = True
@@ -249,6 +335,12 @@ def recommend_top_journals(
                 ai_warning = ai_warning or "AI rationale generation failed; used fallback rationale."
         else:
             entry["rationale"] = "Suitable based on scope alignment, keyword overlap, and manuscript-reference fit."
+
+        # Hide internal fields before returning payload.
+        entry.pop("scope", None)
+        entry.pop("keywords", None)
+        entry.pop("subject_areas", None)
+        entry.pop("article_types", None)
 
     return {
         "success": True,
