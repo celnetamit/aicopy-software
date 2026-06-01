@@ -64,6 +64,24 @@
         });
     }
 
+    function putJson(url, payload) {
+        return requestJson(url, {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload || {})
+        });
+    }
+
+    function deleteJson(url) {
+        return requestJson(url, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        });
+    }
+
     function buildQuery(params) {
         var pairs = [];
         Object.keys(params || {}).forEach(function (key) {
@@ -80,6 +98,8 @@
         requestJson: requestJson,
         getJson: getJson,
         postJson: postJson,
+        putJson: putJson,
+        deleteJson: deleteJson,
         buildQuery: buildQuery,
 
         auth: {
@@ -281,6 +301,18 @@
             },
             journalProfiles: function (taskId) {
                 return getJson('/api/admin/journal-profiles' + buildQuery({ task_id: taskId || '' }));
+            },
+            journals: function (includeInactive) {
+                return getJson('/api/admin/journals' + buildQuery({ include_inactive: includeInactive !== false ? 'true' : 'false' }));
+            },
+            createJournal: function (payload) {
+                return postJson('/api/admin/journals', payload || {});
+            },
+            updateJournal: function (journalId, payload) {
+                return putJson('/api/admin/journals/' + encodeURIComponent(journalId), payload || {});
+            },
+            deactivateJournal: function (journalId) {
+                return deleteJson('/api/admin/journals/' + encodeURIComponent(journalId));
             }
         }
     };

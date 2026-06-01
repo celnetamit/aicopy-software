@@ -4,6 +4,13 @@ from bottle import request
 
 
 def register_admin_routes(app, deps):
+    def _as_list(raw):
+        if isinstance(raw, list):
+            return [str(item).strip() for item in raw if str(item).strip()]
+        if isinstance(raw, str):
+            return [chunk.strip() for chunk in raw.replace("\n", ",").split(",") if chunk.strip()]
+        return []
+
     @app.get("/api/admin/users")
     @deps.require_admin
     def api_admin_users():
@@ -277,3 +284,93 @@ def register_admin_routes(app, deps):
         deps.record_audit(event_type="admin_journal_profiles_viewed", actor_user_id=context.user_id)
         return deps.json_response({"success": True, "profiles": payload}, session_id=context.session_id)
 
+    @app.get("/api/admin/journals")
+    @deps.require_admin
+    def api_admin_list_journals():
+        context = deps.auth_context_from_request()
+        include_inactive = str(request.query.get("include_inactive", "true") or "true").strip().lower() not in {"false", "0", "no"}
+        journals = deps.store.list_journals(include_inactive=include_inactive, limit=1000)
+        deps.record_audit(event_type="admin_journals_viewed", actor_user_id=context.user_id)
+        return deps.json_response({"success": True, "journals": journals}, session_id=context.session_id)
+
+    @app.post("/api/admin/journals")
+    @deps.require_admin
+    def api_admin_create_journal():
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            return deps.json_response(deps.error_payload("JOURNAL_NAME_REQUIRED", "Journal name is required"), status=400, session_id=context.session_id)
+        created = deps.store.create_journal(
+            {
+                "name": name,
+                "scope": str(payload.get("scope") or "").strip(),
+                "keywords": _as_list(payload.get("keywords")),
+                "subject_areas": _as_list(payload.get("subject_areas")),
+                "article_types": _as_list(payload.get("article_types")),
+                "issn_print": str(payload.get("issn_print") or "").strip(),
+                "issn_online": str(payload.get("issn_online") or "").strip(),
+                "publisher": str(payload.get("publisher") or "").strip(),
+                "quartile": str(payload.get("quartile") or "").strip().upper(),
+                "open_access": bool(payload.get("open_access", False)),
+                "apc_usd": payload.get("apc_usd", 0),
+                "submission_url": str(payload.get("submission_url") or "").strip(),
+                "is_active": bool(payload.get("is_active", True)),
+            }
+        )
+        deps.record_audit(
+            event_type="admin_journal_created",
+            actor_user_id=context.user_id,
+            entity_type="journal",
+            entity_id=str(created.get("id") or ""),
+            metadata={"name": name},
+        )
+        return deps.json_response({"success": True, "journal": created}, session_id=context.session_id)
+
+    @app.put("/api/admin/journals/<journal_id>")
+    @deps.require_admin
+    def api_admin_update_journal(journal_id: str):
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        updated = deps.store.update_journal(
+            journal_id,
+            {
+                "name": str(payload.get("name") or "").strip() if "name" in payload else None,
+                "scope": str(payload.get("scope") or "").strip() if "scope" in payload else None,
+                "keywords": _as_list(payload.get("keywords")) if "keywords" in payload else None,
+                "subject_areas": _as_list(payload.get("subject_areas")) if "subject_areas" in payload else None,
+                "article_types": _as_list(payload.get("article_types")) if "article_types" in payload else None,
+                "issn_print": str(payload.get("issn_print") or "").strip() if "issn_print" in payload else None,
+                "issn_online": str(payload.get("issn_online") or "").strip() if "issn_online" in payload else None,
+                "publisher": str(payload.get("publisher") or "").strip() if "publisher" in payload else None,
+                "quartile": str(payload.get("quartile") or "").strip().upper() if "quartile" in payload else None,
+                "open_access": bool(payload.get("open_access")) if "open_access" in payload else None,
+                "apc_usd": payload.get("apc_usd") if "apc_usd" in payload else None,
+                "submission_url": str(payload.get("submission_url") or "").strip() if "submission_url" in payload else None,
+                "is_active": bool(payload.get("is_active")) if "is_active" in payload else None,
+            },
+        )
+        if updated is None:
+            return deps.json_response(deps.error_payload("JOURNAL_NOT_FOUND", "Journal not found"), status=404, session_id=context.session_id)
+        deps.record_audit(
+            event_type="admin_journal_updated",
+            actor_user_id=context.user_id,
+            entity_type="journal",
+            entity_id=str(journal_id),
+        )
+        return deps.json_response({"success": True, "journal": updated}, session_id=context.session_id)
+
+    @app.delete("/api/admin/journals/<journal_id>")
+    @deps.require_admin
+    def api_admin_delete_journal(journal_id: str):
+        context = deps.auth_context_from_request()
+        updated = deps.store.deactivate_journal(journal_id)
+        if updated is None:
+            return deps.json_response(deps.error_payload("JOURNAL_NOT_FOUND", "Journal not found"), status=404, session_id=context.session_id)
+        deps.record_audit(
+            event_type="admin_journal_deactivated",
+            actor_user_id=context.user_id,
+            entity_type="journal",
+            entity_id=str(journal_id),
+        )
+        return deps.json_response({"success": True, "journal": updated}, session_id=context.session_id)

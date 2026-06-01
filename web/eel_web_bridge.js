@@ -32,6 +32,16 @@
         });
     }
 
+    function requestJson(url, options) {
+        if (typeof apiClient.requestJson === 'function') {
+            return apiClient.requestJson(url, options || {});
+        }
+        return Promise.resolve({
+            success: false,
+            error: 'ManuscriptApi client is not loaded'
+        });
+    }
+
     function withCallback(promise, callback) {
         return Promise.resolve(promise)
             .then(function (payload) {
@@ -297,6 +307,39 @@
                 model: input.model || '',
                 api_key: input.api_key || '',
                 ollama_host: input.ollama_host || ''
+            });
+        }),
+
+        admin_get_journal_profiles: callbackWrapper(function (taskId) {
+            var query = '';
+            if (taskId) {
+                query = '?task_id=' + encodeURIComponent(String(taskId));
+            }
+            return getJson('/api/admin/journal-profiles' + query);
+        }),
+
+        admin_list_journals: callbackWrapper(function (includeInactive) {
+            var value = includeInactive === false ? 'false' : 'true';
+            return getJson('/api/admin/journals?include_inactive=' + encodeURIComponent(value));
+        }),
+
+        admin_create_journal: callbackWrapper(function (payload) {
+            return postJson('/api/admin/journals', payload || {});
+        }),
+
+        admin_update_journal: callbackWrapper(function (journalId, payload) {
+            return requestJson('/api/admin/journals/' + encodeURIComponent(String(journalId || '')), {
+                method: 'PUT',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload || {})
+            });
+        }),
+
+        admin_deactivate_journal: callbackWrapper(function (journalId) {
+            return requestJson('/api/admin/journals/' + encodeURIComponent(String(journalId || '')), {
+                method: 'DELETE',
+                credentials: 'same-origin'
             });
         }),
 

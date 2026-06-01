@@ -295,6 +295,7 @@ function handleLoadResponse(displayName) {
             mainState.fileContent.nounReport = null;
             mainState.fileContent.domainReport = null;
             mainState.fileContent.journalProfileReport = null;
+            mainState.fileContent.journalRecommendations = [];
             mainState.fileContent.citationReferenceReport = null;
             mainState.fileContent.rerunActionMeta = null;
             mainState.fileContent.groupDecisions = null;
@@ -441,6 +442,7 @@ function applyProcessResponseToState(response, options = {}) {
     mainState.fileContent.nounReport = response.noun_report || null;
     mainState.fileContent.domainReport = response.domain_report || null;
     mainState.fileContent.journalProfileReport = response.journal_profile_report || null;
+    mainState.fileContent.journalRecommendations = Array.isArray(response.journal_recommendations) ? response.journal_recommendations : [];
     mainState.fileContent.citationReferenceReport = response.citation_reference_report || null;
     mainState.fileContent.docxPreviewImages = Array.isArray(response.docx_preview_images) ? response.docx_preview_images : [];
     mainState.fileContent.rerunActionMeta = options.rerunActionMeta && typeof options.rerunActionMeta === 'object'

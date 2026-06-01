@@ -290,6 +290,28 @@ class AppStore:
             )
             """
         )
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS journals (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                scope TEXT,
+                keywords_json TEXT NOT NULL,
+                subject_areas_json TEXT NOT NULL,
+                article_types_json TEXT NOT NULL,
+                issn_print TEXT,
+                issn_online TEXT,
+                publisher TEXT,
+                quartile TEXT,
+                open_access INTEGER NOT NULL DEFAULT 0,
+                apc_usd REAL NOT NULL DEFAULT 0,
+                submission_url TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
 
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at)")
@@ -301,6 +323,7 @@ class AppStore:
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_user_id, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_app_settings_updated_at ON app_settings(updated_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_journals_active_updated ON journals(is_active, updated_at)")
 
     @staticmethod
     def _now_ts() -> int:
@@ -1149,6 +1172,162 @@ class AppStore:
             (safe_key, payload_json, updated_by_user_id or None, now),
         )
 
+    def _normalize_journal_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if row is None:
+            return None
+        item = dict(row)
+        item["keywords"] = self._safe_json_load(item.get("keywords_json")).get("items", [])
+        item["subject_areas"] = self._safe_json_load(item.get("subject_areas_json")).get("items", [])
+        item["article_types"] = self._safe_json_load(item.get("article_types_json")).get("items", [])
+        item["open_access"] = bool(item.get("open_access"))
+        item["is_active"] = bool(item.get("is_active"))
+        item["apc_usd"] = float(item.get("apc_usd") or 0.0)
+        return item
+
+    def list_journals(self, *, include_inactive: bool = True, limit: int = 500) -> List[Dict[str, Any]]:
+        safe_limit = max(1, min(2000, int(limit or 500)))
+        if include_inactive:
+            rows = self._query_all(
+                "SELECT * FROM journals ORDER BY updated_at DESC LIMIT ?"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM journals ORDER BY updated_at DESC LIMIT %s",
+                (safe_limit,),
+            )
+        else:
+            rows = self._query_all(
+                "SELECT * FROM journals WHERE is_active = 1 ORDER BY updated_at DESC LIMIT ?"
+                if self.backend == "sqlite"
+                else
+                "SELECT * FROM journals WHERE is_active = 1 ORDER BY updated_at DESC LIMIT %s",
+                (safe_limit,),
+            )
+        return [self._normalize_journal_row(row) for row in rows if row]
+
+    def get_journal(self, journal_id: str) -> Optional[Dict[str, Any]]:
+        row = self._query_one(
+            "SELECT * FROM journals WHERE id = ?" if self.backend == "sqlite" else "SELECT * FROM journals WHERE id = %s",
+            (str(journal_id or "").strip(),),
+        )
+        return self._normalize_journal_row(row)
+
+    def create_journal(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        now = self._now_ts()
+        journal_id = uuid.uuid4().hex
+        keywords = payload.get("keywords") if isinstance(payload.get("keywords"), list) else []
+        subject_areas = payload.get("subject_areas") if isinstance(payload.get("subject_areas"), list) else []
+        article_types = payload.get("article_types") if isinstance(payload.get("article_types"), list) else []
+        self._execute(
+            """
+            INSERT INTO journals (
+                id, name, scope, keywords_json, subject_areas_json, article_types_json,
+                issn_print, issn_online, publisher, quartile, open_access, apc_usd,
+                submission_url, is_active, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            if self.backend == "sqlite"
+            else
+            """
+            INSERT INTO journals (
+                id, name, scope, keywords_json, subject_areas_json, article_types_json,
+                issn_print, issn_online, publisher, quartile, open_access, apc_usd,
+                submission_url, is_active, created_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                journal_id,
+                str(payload.get("name") or "").strip(),
+                str(payload.get("scope") or "").strip(),
+                self._safe_json_dump({"items": keywords}),
+                self._safe_json_dump({"items": subject_areas}),
+                self._safe_json_dump({"items": article_types}),
+                str(payload.get("issn_print") or "").strip(),
+                str(payload.get("issn_online") or "").strip(),
+                str(payload.get("publisher") or "").strip(),
+                str(payload.get("quartile") or "").strip().upper(),
+                1 if bool(payload.get("open_access", False)) else 0,
+                float(payload.get("apc_usd") or 0.0),
+                str(payload.get("submission_url") or "").strip(),
+                1 if bool(payload.get("is_active", True)) else 0,
+                now,
+                now,
+            ),
+        )
+        return self.get_journal(journal_id) or {}
+
+    def update_journal(self, journal_id: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        current = self.get_journal(journal_id)
+        if current is None:
+            return None
+        now = self._now_ts()
+        keywords = payload.get("keywords") if isinstance(payload.get("keywords"), list) else current.get("keywords", [])
+        subject_areas = payload.get("subject_areas") if isinstance(payload.get("subject_areas"), list) else current.get("subject_areas", [])
+        article_types = payload.get("article_types") if isinstance(payload.get("article_types"), list) else current.get("article_types", [])
+        self._execute(
+            """
+            UPDATE journals
+            SET name = ?, scope = ?, keywords_json = ?, subject_areas_json = ?, article_types_json = ?,
+                issn_print = ?, issn_online = ?, publisher = ?, quartile = ?, open_access = ?, apc_usd = ?,
+                submission_url = ?, is_active = ?, updated_at = ?
+            WHERE id = ?
+            """
+            if self.backend == "sqlite"
+            else
+            """
+            UPDATE journals
+            SET name = %s, scope = %s, keywords_json = %s, subject_areas_json = %s, article_types_json = %s,
+                issn_print = %s, issn_online = %s, publisher = %s, quartile = %s, open_access = %s, apc_usd = %s,
+                submission_url = %s, is_active = %s, updated_at = %s
+            WHERE id = %s
+            """,
+            (
+                str((payload.get("name") if ("name" in payload and payload.get("name") is not None) else current.get("name")) or "").strip(),
+                str((payload.get("scope") if ("scope" in payload and payload.get("scope") is not None) else current.get("scope")) or "").strip(),
+                self._safe_json_dump({"items": keywords}),
+                self._safe_json_dump({"items": subject_areas}),
+                self._safe_json_dump({"items": article_types}),
+                str((payload.get("issn_print") if ("issn_print" in payload and payload.get("issn_print") is not None) else current.get("issn_print")) or "").strip(),
+                str((payload.get("issn_online") if ("issn_online" in payload and payload.get("issn_online") is not None) else current.get("issn_online")) or "").strip(),
+                str((payload.get("publisher") if ("publisher" in payload and payload.get("publisher") is not None) else current.get("publisher")) or "").strip(),
+                str((payload.get("quartile") if ("quartile" in payload and payload.get("quartile") is not None) else current.get("quartile")) or "").strip().upper(),
+                1 if bool(payload.get("open_access", current.get("open_access", False))) else 0,
+                float(payload.get("apc_usd", current.get("apc_usd", 0.0)) or 0.0),
+                str((payload.get("submission_url") if ("submission_url" in payload and payload.get("submission_url") is not None) else current.get("submission_url")) or "").strip(),
+                1 if bool(payload.get("is_active", current.get("is_active", True))) else 0,
+                now,
+                str(journal_id),
+            ),
+        )
+        return self.get_journal(journal_id)
+
+    def deactivate_journal(self, journal_id: str) -> Optional[Dict[str, Any]]:
+        now = self._now_ts()
+        self._execute(
+            "UPDATE journals SET is_active = 0, updated_at = ? WHERE id = ?"
+            if self.backend == "sqlite"
+            else
+            "UPDATE journals SET is_active = 0, updated_at = %s WHERE id = %s",
+            (now, str(journal_id)),
+        )
+        return self.get_journal(journal_id)
+
+    def seed_default_journals(self, journals: Sequence[Dict[str, Any]]) -> int:
+        existing = self.list_journals(include_inactive=True, limit=1)
+        if existing:
+            return 0
+        inserted = 0
+        for item in journals or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            self.create_journal(item)
+            inserted += 1
+        return inserted
+
     def _normalize_task_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if row is None:
             return None
@@ -1168,6 +1347,7 @@ class AppStore:
     def clear_all_for_tests(self):
         """Utility for tests to reset database content."""
         self._execute("DELETE FROM task_runs")
+        self._execute("DELETE FROM journals")
         self._execute("DELETE FROM task_files")
         self._execute("DELETE FROM tasks")
         self._execute("DELETE FROM user_sessions")

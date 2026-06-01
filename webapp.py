@@ -27,6 +27,7 @@ from bottle import Bottle, HTTPResponse, request, response, run, static_file
 from app_store import AppStore, ROLE_ADMIN, STATUS_ACTIVE, STATUS_INACTIVE, SessionContext
 from document_processor import DocumentProcessor
 from job_queue import BackgroundJobQueue
+from journal_recommender import recommend_top_journals
 from version_info import APP_VERSION, WEB_ASSET_VERSION
 import manuscript_service
 
@@ -53,6 +54,7 @@ REQUIRED_WEB_ASSETS = (
     "admin/runtime.js",
     "admin/audit.js",
     "admin/users.js",
+    "admin/journals.js",
     "admin/global-settings.js",
     "admin/reference-diagnostics.js",
     "admin/panel.js",
@@ -1074,7 +1076,38 @@ def _extract_reports_from_process_payload(process_payload: Dict) -> Dict:
         "processing_note": process_payload.get("processing_note", ""),
         "edit_explanations": process_payload.get("edit_explanations") or {},
         "docx_preview_images": process_payload.get("docx_preview_images") or [],
+        "journal_recommendations": process_payload.get("journal_recommendations") or [],
+        "journal_recommendation_warning": process_payload.get("journal_recommendation_warning", ""),
     }
+
+
+def _attach_journal_recommendations(process_payload: Dict, task: Dict, options: Dict) -> Dict:
+    payload = dict(process_payload or {})
+    try:
+        journals = _STORE.list_journals(include_inactive=False, limit=1000)
+        rec = recommend_top_journals(
+            journals=journals,
+            manuscript_text=str(task.get("original_text") or ""),
+            corrected_text=str(payload.get("full_corrected_text") or payload.get("text") or ""),
+            journal_profile_report=payload.get("journal_profile_report") if isinstance(payload.get("journal_profile_report"), dict) else {},
+            citation_reference_report=payload.get("citation_reference_report") if isinstance(payload.get("citation_reference_report"), dict) else {},
+            ai_settings=(options.get("ai") if isinstance(options.get("ai"), dict) else {}),
+            top_k=3,
+        )
+        payload["journal_recommendations"] = rec.get("recommendations", []) if isinstance(rec, dict) else []
+        if isinstance(rec, dict) and rec.get("warning"):
+            payload["journal_recommendation_warning"] = str(rec.get("warning") or "")
+        _record_audit(
+            event_type="journal_recommendations_generated",
+            actor_user_id=str(task.get("user_id") or ""),
+            entity_type="task",
+            entity_id=str(task.get("id") or ""),
+            metadata={"recommendation_count": len(payload.get("journal_recommendations") or [])},
+        )
+    except Exception as exc:
+        payload["journal_recommendations"] = []
+        payload["journal_recommendation_warning"] = f"Journal recommendation unavailable: {exc}"
+    return payload
 
 
 def _store_task_export_files(task_row: Dict, original_text: str, corrected_text: str):
@@ -1269,6 +1302,7 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         full_corrected_text=full_corrected_text,
         options=safe_options,
     )
+    process_payload = _attach_journal_recommendations(process_payload, task, safe_options)
 
     try:
         _append_reference_unresolved_trend_sample(task=task, process_payload=process_payload)
@@ -1360,6 +1394,7 @@ def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict) 
         full_corrected_text=healed_text,
         options=options,
     )
+    process_payload = _attach_journal_recommendations(process_payload, task, options)
 
     reports = _extract_reports_from_process_payload(process_payload)
 

@@ -271,6 +271,7 @@ function applyTaskDetailsToState(task) {
     authState.fileContent.nounReport = reports.noun_report || null;
     authState.fileContent.domainReport = reports.domain_report || null;
     authState.fileContent.journalProfileReport = reports.journal_profile_report || null;
+    authState.fileContent.journalRecommendations = Array.isArray(reports.journal_recommendations) ? reports.journal_recommendations : [];
     authState.fileContent.citationReferenceReport = reports.citation_reference_report || null;
     authState.fileContent.docxPreviewImages = Array.isArray(reports.docx_preview_images) ? reports.docx_preview_images : [];
     authState.fileContent.processingAudit = reports.processing_audit || null;
@@ -791,6 +792,14 @@ function filterAndRenderProfiles(query) {
     return undefined;
 }
 
+function refreshAdminJournals() {
+    const journalModule = appAuth.adminJournals || {};
+    if (typeof journalModule.refreshAdminJournals === 'function') {
+        return journalModule.refreshAdminJournals();
+    }
+    return undefined;
+}
+
 
 function updateAdminUserStatus(userId, nextStatus) {
     const usersModule = appAuth.adminUsers || {};
@@ -892,6 +901,7 @@ appAuth.authAdmin = {
     resetAdminReferenceValidationDiagnostics,
     refreshJournalProfiles,
     filterAndRenderProfiles,
+    refreshAdminJournals,
     updateAdminUserStatus,
     updateAdminAiValidationHint,
     updateAdminEditingControlsHint,

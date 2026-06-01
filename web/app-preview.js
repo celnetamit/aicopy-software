@@ -619,6 +619,7 @@ function renderCorrectionsPanel(
     nounReport,
     domainReport,
     journalProfileReport,
+    journalRecommendations,
     citationReferenceReport,
     processingAudit,
     groupDecisions,
@@ -1092,6 +1093,32 @@ function renderCorrectionsPanel(
         }
         html += '</section>';
     }
+    const safeRecommendations = Array.isArray(journalRecommendations) ? journalRecommendations : [];
+    if (safeRecommendations.length > 0) {
+        html += '<section class="profile-card">';
+        html += '<div class="profile-title">Top Journal Recommendations</div>';
+        html += '<div class="profile-summary">Best-fit journals based on manuscript content and configured journal records.</div>';
+        safeRecommendations.slice(0, 3).forEach((item, idx) => {
+            const name = previewHelpers.escapeHtml(String(item.journal_name || 'Unknown Journal'));
+            const score = Number(item.score || 0);
+            const rationale = previewHelpers.escapeHtml(String(item.rationale || ''));
+            const matched = Array.isArray(item.matched_signals) ? item.matched_signals : [];
+            html += '<div class="profile-validation" style="margin-top: 10px;">';
+            html += `<div class="profile-validation-title">#${idx + 1} ${name} <span style="float:right;">Score: ${score.toFixed(1)}</span></div>`;
+            if (matched.length > 0) {
+                html += '<ul>';
+                matched.slice(0, 4).forEach((signal) => {
+                    html += `<li>${previewHelpers.escapeHtml(String(signal || ''))}</li>`;
+                });
+                html += '</ul>';
+            }
+            if (rationale) {
+                html += `<div class="hint-text" style="margin-top: 8px;">${rationale}</div>`;
+            }
+            html += '</div>';
+        });
+        html += '</section>';
+    }
 
     if (safeAudit && safeAudit.mode === 'sectioned') {
         const summary = safeAudit.summary && typeof safeAudit.summary === 'object' ? safeAudit.summary : {};
@@ -1495,6 +1522,7 @@ function renderCurrentPreview() {
             previewState.fileContent.nounReport,
             previewState.fileContent.domainReport,
             previewState.fileContent.journalProfileReport,
+            previewState.fileContent.journalRecommendations,
             previewState.fileContent.citationReferenceReport,
             previewState.fileContent.processingAudit,
             previewState.fileContent.groupDecisions,

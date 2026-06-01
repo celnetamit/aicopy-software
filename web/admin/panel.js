@@ -126,6 +126,9 @@ function openAdminPanel() {
     auth.loadAdminGlobalSettings();
     auth.refreshAdminUsers();
     auth.refreshAdminAudit();
+    if (typeof auth.refreshAdminJournals === 'function') {
+        auth.refreshAdminJournals();
+    }
     auth.refreshAdminReferenceValidationDiagnostics();
     if (typeof auth.refreshJournalProfiles === 'function') {
         auth.refreshJournalProfiles();

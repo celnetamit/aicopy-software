@@ -732,6 +732,48 @@
                     </div>
                 </section>
 
+                <section class="admin-block">
+                    <h3>Journals Records</h3>
+                    <p class="hint-text" id="admin-journals-status">Manage journal records used by Top-3 recommendation.</p>
+                    <div class="inline-row admin-action-row" style="margin-bottom: 12px; gap: 10px;">
+                        <button class="btn-secondary btn-small" id="admin-refresh-journals-btn" type="button">Refresh Journals</button>
+                    </div>
+                    <div class="admin-api-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                        <input id="admin-journal-name" class="input-field" type="text" placeholder="Journal name*" />
+                        <input id="admin-journal-publisher" class="input-field" type="text" placeholder="Publisher" />
+                        <input id="admin-journal-scope" class="input-field" type="text" placeholder="Scope summary" />
+                        <input id="admin-journal-quartile" class="input-field" type="text" placeholder="Quartile (Q1/Q2/Q3/Q4)" />
+                        <input id="admin-journal-keywords" class="input-field" type="text" placeholder="Keywords (comma-separated)" />
+                        <input id="admin-journal-subjects" class="input-field" type="text" placeholder="Subject areas (comma-separated)" />
+                        <input id="admin-journal-article-types" class="input-field" type="text" placeholder="Article types (comma-separated)" />
+                        <input id="admin-journal-submission-url" class="input-field" type="text" placeholder="Submission URL" />
+                        <input id="admin-journal-issn-print" class="input-field" type="text" placeholder="ISSN print" />
+                        <input id="admin-journal-issn-online" class="input-field" type="text" placeholder="ISSN online" />
+                        <input id="admin-journal-apc-usd" class="input-field" type="number" min="0" step="0.01" placeholder="APC (USD)" />
+                        <label class="checkbox-label"><input id="admin-journal-open-access" type="checkbox" /> Open access</label>
+                    </div>
+                    <div class="inline-row admin-action-row" style="margin-top: 12px;">
+                        <button class="btn-secondary btn-small" id="admin-save-journal-btn" type="button">Add Journal</button>
+                    </div>
+                    <div class="admin-table-wrap" style="margin-top: 12px;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Journal</th>
+                                    <th>Publisher</th>
+                                    <th>Quartile</th>
+                                    <th>Open Access</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-journals-body">
+                                <tr><td colspan="6">No journal records loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
 
                 <section class="admin-block">
                     <h3>Users</h3>
