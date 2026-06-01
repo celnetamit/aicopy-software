@@ -313,6 +313,12 @@
             },
             deactivateJournal: function (journalId) {
                 return deleteJson('/api/admin/journals/' + encodeURIComponent(journalId));
+            },
+            importJournalsCsv: function (csvText) {
+                return postJson('/api/admin/journals/import', { csv_text: String(csvText || '') });
+            },
+            exportJournalsCsv: function () {
+                return getJson('/api/admin/journals/export');
             }
         }
     };

@@ -1,5 +1,8 @@
-"""Admin user, audit, settings, diagnostics, and provider validation routes."""
+"""Admin user, audit, settings, diagnostics, provider validation, and journals io routes."""
 
+import csv
+import io
+import time
 from bottle import request
 
 
@@ -10,6 +13,32 @@ def register_admin_routes(app, deps):
         if isinstance(raw, str):
             return [chunk.strip() for chunk in raw.replace("\n", ",").split(",") if chunk.strip()]
         return []
+
+    def _split_csv_list(raw):
+        text = str(raw or "").strip()
+        if not text:
+            return []
+        items = [chunk.strip(" -\t\r\n") for chunk in text.replace("\n", ",").split(",")]
+        out = []
+        seen = set()
+        for item in items:
+            if not item:
+                continue
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+        return out[:120]
+
+    def _compact_scope(focus_scope, about, category):
+        focus = " ".join(str(focus_scope or "").split())
+        about_text = " ".join(str(about or "").split())
+        category_text = str(category or "").strip()
+        scope = focus if focus else about_text
+        if category_text:
+            scope = f"[{category_text}] {scope}" if scope else category_text
+        return scope[:4000]
 
     @app.get("/api/admin/users")
     @deps.require_admin
@@ -374,3 +403,104 @@ def register_admin_routes(app, deps):
             entity_id=str(journal_id),
         )
         return deps.json_response({"success": True, "journal": updated}, session_id=context.session_id)
+
+    @app.post("/api/admin/journals/import")
+    @deps.require_admin
+    def api_admin_import_journals_csv():
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        csv_text = str(payload.get("csv_text") or "")
+        if not csv_text.strip():
+            return deps.json_response(deps.error_payload("CSV_REQUIRED", "csv_text is required"), status=400, session_id=context.session_id)
+
+        created = 0
+        updated = 0
+        skipped = 0
+        by_name = {
+            str(item.get("name") or "").strip().lower(): item
+            for item in deps.store.list_journals(include_inactive=True, limit=50000)
+            if str(item.get("name") or "").strip()
+        }
+        reader = csv.DictReader(io.StringIO(csv_text))
+        for row in reader:
+            safe_row = row or {}
+            name = str(safe_row.get("Name") or safe_row.get("name") or "").strip()
+            if not name:
+                skipped += 1
+                continue
+            category = str(safe_row.get("Category") or safe_row.get("category") or "").strip()
+            submission_url = str(safe_row.get("Submission URL") or safe_row.get("submission_url") or "").strip()
+            focus_scope = str(safe_row.get("Focus & Scope") or safe_row.get("scope") or "").strip()
+            about = str(safe_row.get("About") or safe_row.get("about") or "").strip()
+            payload_row = {
+                "name": name,
+                "scope": _compact_scope(focus_scope, about, category),
+                "keywords": _split_csv_list(safe_row.get("Keywords") or safe_row.get("keywords") or ""),
+                "subject_areas": _split_csv_list(safe_row.get("Primary Domains") or safe_row.get("subject_areas") or ""),
+                "article_types": _split_csv_list(safe_row.get("Article Types") or safe_row.get("article_types") or ""),
+                "publisher": category,
+                "quartile": str(safe_row.get("Quartile") or safe_row.get("quartile") or "").strip().upper(),
+                "open_access": str(safe_row.get("Open Access") or safe_row.get("open_access") or "").strip().lower() in {"1", "true", "yes"},
+                "apc_usd": safe_row.get("APC USD") or safe_row.get("apc_usd") or 0,
+                "issn_print": str(safe_row.get("ISSN Print") or safe_row.get("issn_print") or "").strip(),
+                "issn_online": str(safe_row.get("ISSN Online") or safe_row.get("issn_online") or "").strip(),
+                "submission_url": submission_url,
+                "is_active": True,
+            }
+            key = name.lower()
+            existing = by_name.get(key)
+            if existing is None:
+                created_row = deps.store.create_journal(payload_row)
+                if created_row:
+                    created += 1
+                    by_name[key] = created_row
+                else:
+                    skipped += 1
+            else:
+                updated_row = deps.store.update_journal(str(existing.get("id") or ""), payload_row)
+                if updated_row:
+                    updated += 1
+                    by_name[key] = updated_row
+                else:
+                    skipped += 1
+
+        deps.record_audit(
+            event_type="admin_journals_imported",
+            actor_user_id=context.user_id,
+            metadata={"created": created, "updated": updated, "skipped": skipped},
+        )
+        return deps.json_response(
+            {"success": True, "created": created, "updated": updated, "skipped": skipped, "total": len(by_name)},
+            session_id=context.session_id,
+        )
+
+    @app.get("/api/admin/journals/export")
+    @deps.require_admin
+    def api_admin_export_journals_csv():
+        context = deps.auth_context_from_request()
+        journals = deps.store.list_journals(include_inactive=True, limit=50000)
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow([
+            "Name", "Category", "Submission URL", "Focus & Scope", "Keywords", "Primary Domains", "Article Types",
+            "Quartile", "Open Access", "APC USD", "ISSN Print", "ISSN Online", "Is Active",
+        ])
+        for j in journals:
+            writer.writerow([
+                str(j.get("name") or ""),
+                str(j.get("publisher") or ""),
+                str(j.get("submission_url") or ""),
+                str(j.get("scope") or ""),
+                ", ".join(j.get("keywords") or []),
+                ", ".join(j.get("subject_areas") or []),
+                ", ".join(j.get("article_types") or []),
+                str(j.get("quartile") or ""),
+                "true" if bool(j.get("open_access")) else "false",
+                str(j.get("apc_usd") or 0),
+                str(j.get("issn_print") or ""),
+                str(j.get("issn_online") or ""),
+                "true" if bool(j.get("is_active")) else "false",
+            ])
+        deps.record_audit(event_type="admin_journals_exported", actor_user_id=context.user_id, metadata={"count": len(journals)})
+        file_name = f"journals_export_{time.strftime('%Y-%m-%d')}.csv"
+        return deps.json_response({"success": True, "file_name": file_name, "csv_text": out.getvalue()}, session_id=context.session_id)

@@ -140,6 +140,23 @@ class AdminJournalsApiTests(unittest.TestCase):
         status, _ = self.client.request("GET", "/api/admin/journals")
         self.assertEqual(status, 403)
 
+    def test_admin_journal_import_export_csv(self):
+        self._login("amit@conwiz.in")
+        csv_text = (
+            "Name,Category,Submission URL,Focus & Scope,Keywords,Primary Domains\n"
+            "\"Import Journal\",Computer/IT,https://submit.example,\"AI and systems\",\"ai,ml,systems\",\"Artificial Intelligence, Systems\"\n"
+        )
+        status, payload = self.client.request("POST", "/api/admin/journals/import", {"csv_text": csv_text})
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertGreaterEqual(int(payload.get("created") or 0), 1)
+
+        status, payload = self.client.request("GET", "/api/admin/journals/export")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+        self.assertIn("csv_text", payload)
+        self.assertIn("Import Journal", str(payload.get("csv_text") or ""))
+
 
 if __name__ == "__main__":
     unittest.main()

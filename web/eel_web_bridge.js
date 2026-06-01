@@ -343,6 +343,14 @@
             });
         }),
 
+        admin_import_journals_csv: callbackWrapper(function (csvText) {
+            return postJson('/api/admin/journals/import', { csv_text: String(csvText || '') });
+        }),
+
+        admin_export_journals_csv: callbackWrapper(function () {
+            return getJson('/api/admin/journals/export');
+        }),
+
         get_runtime_telemetry: callbackWrapper(function () {
             return getJson('/api/runtime-telemetry');
         }),

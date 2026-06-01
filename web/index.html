@@ -737,6 +737,9 @@
                     <p class="hint-text" id="admin-journals-status">Manage journal records used by Top-3 recommendation.</p>
                     <div class="inline-row admin-action-row" style="margin-bottom: 12px; gap: 10px;">
                         <button class="btn-secondary btn-small" id="admin-refresh-journals-btn" type="button">Refresh Journals</button>
+                        <input id="admin-import-journals-file" type="file" accept=".csv,text/csv" style="display:none;" />
+                        <button class="btn-secondary btn-small" id="admin-import-journals-btn" type="button">Import CSV</button>
+                        <button class="btn-secondary btn-small" id="admin-export-journals-btn" type="button">Export CSV</button>
                     </div>
                     <div class="admin-api-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
                         <input id="admin-journal-name" class="input-field" type="text" placeholder="Journal name*" />

@@ -186,6 +186,62 @@ function bindAdminJournals() {
     if (adminJournalsDom.adminSaveJournalBtn) {
         adminJournalsDom.adminSaveJournalBtn.addEventListener('click', saveJournal);
     }
+    if (adminJournalsDom.adminImportJournalsBtn && adminJournalsDom.adminImportJournalsFile) {
+        adminJournalsDom.adminImportJournalsBtn.addEventListener('click', () => {
+            adminJournalsDom.adminImportJournalsFile.click();
+        });
+        adminJournalsDom.adminImportJournalsFile.addEventListener('change', () => {
+            const file = adminJournalsDom.adminImportJournalsFile.files && adminJournalsDom.adminImportJournalsFile.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const csvText = String(reader.result || '');
+                callJournalsApiOrEel(
+                    (api) => api.admin && typeof api.admin.importJournalsCsv === 'function' ? api.admin.importJournalsCsv(csvText) : null,
+                    'admin_import_journals_csv',
+                    [csvText],
+                    function (response) {
+                        if (!response || !response.success) {
+                            setStatus(response && response.error ? String(response.error) : 'Import failed', 'error');
+                            return;
+                        }
+                        refreshAdminJournals();
+                        setStatus(`Import complete: created ${Number(response.created || 0)}, updated ${Number(response.updated || 0)}, skipped ${Number(response.skipped || 0)}.`, 'success');
+                    }
+                );
+            };
+            reader.onerror = () => setStatus('Failed to read CSV file.', 'error');
+            reader.readAsText(file, 'utf-8');
+            adminJournalsDom.adminImportJournalsFile.value = '';
+        });
+    }
+    if (adminJournalsDom.adminExportJournalsBtn) {
+        adminJournalsDom.adminExportJournalsBtn.addEventListener('click', () => {
+            callJournalsApiOrEel(
+                (api) => api.admin && typeof api.admin.exportJournalsCsv === 'function' ? api.admin.exportJournalsCsv() : null,
+                'admin_export_journals_csv',
+                [],
+                function (response) {
+                    if (!response || !response.success) {
+                        setStatus(response && response.error ? String(response.error) : 'Export failed', 'error');
+                        return;
+                    }
+                    const csvText = String(response.csv_text || '');
+                    const fileName = String(response.file_name || 'journals_export.csv');
+                    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    setStatus(`Exported ${fileName}`, 'success');
+                }
+            );
+        });
+    }
 }
 
 bindAdminJournals();
