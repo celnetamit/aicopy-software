@@ -4,6 +4,7 @@ const adminJournalsDom = appAdminJournalsRoot.dom;
 const adminJournalsHelpers = appAdminJournalsRoot.helpers;
 
 let editingJournalId = '';
+let journalsBindingsAttached = false;
 
 function callJournalsApiOrEel(apiInvoker, eelMethod, eelArgs, callback) {
     return appAdminJournalsRoot.authAdmin.callApiOrEel(apiInvoker, eelMethod, eelArgs, callback);
@@ -180,6 +181,10 @@ function deactivateJournal(journalId) {
 }
 
 function bindAdminJournals() {
+    if (journalsBindingsAttached) {
+        return;
+    }
+    journalsBindingsAttached = true;
     if (adminJournalsDom.adminRefreshJournalsBtn) {
         adminJournalsDom.adminRefreshJournalsBtn.addEventListener('click', refreshAdminJournals);
     }
@@ -244,7 +249,11 @@ function bindAdminJournals() {
     }
 }
 
-bindAdminJournals();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAdminJournals, { once: true });
+} else {
+    bindAdminJournals();
+}
 
 appAdminJournalsRoot.adminJournals = {
     refreshAdminJournals,
