@@ -462,8 +462,8 @@
                     <h3>Global Settings</h3>
                     <div class="admin-settings-stack">
                         <div class="admin-settings-row">
-                            <label class="field-label admin-row-label" for="admin-setting-spelling">Editing</label>
-                            <div class="admin-check-grid">
+                            <div class="field-label admin-row-label" id="admin-editing-group-label">Editing</div>
+                            <div class="admin-check-grid" role="group" aria-labelledby="admin-editing-group-label">
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-spelling" checked><span>Spelling</span></label>
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-sentence-case" checked><span>Sentence Case</span></label>
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-punctuation" checked><span>Punctuation</span></label>
@@ -620,8 +620,8 @@
                         </div>
 
                         <div class="admin-settings-row">
-                            <label class="field-label admin-row-label" for="admin-setting-ai-enabled">AI Provider Settings</label>
-                            <div class="admin-provider-grid">
+                            <div class="field-label admin-row-label" id="admin-ai-provider-label">AI Provider Settings</div>
+                            <div class="admin-provider-grid" role="group" aria-labelledby="admin-ai-provider-label">
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-ai-enabled" checked><span>Enable AI</span></label>
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-ai-first-cmos"><span>AI-first CMOS copy editor</span></label>
                                 <select id="admin-setting-ai-provider" class="input-field">
@@ -649,8 +649,8 @@
                         </div>
 
                         <div class="admin-settings-row">
-                            <label class="field-label admin-row-label" for="admin-setting-ollama-generate-timeout-seconds">Ollama Transport</label>
-                            <div class="admin-advanced-grid">
+                            <div class="field-label admin-row-label" id="admin-ollama-transport-label">Ollama Transport</div>
+                            <div class="admin-advanced-grid" role="group" aria-labelledby="admin-ollama-transport-label">
                                 <input id="admin-setting-ollama-generate-timeout-seconds" class="input-field" type="number" min="1" max="600" step="1" value="60" placeholder="Generate timeout seconds" />
                                 <input id="admin-setting-ollama-health-timeout-seconds" class="input-field" type="number" min="1" max="60" step="1" value="5" placeholder="Health timeout seconds" />
                                 <input id="admin-setting-ollama-retry-count" class="input-field" type="number" min="0" max="3" step="1" value="0" placeholder="Retry count" />
@@ -660,8 +660,8 @@
                         </div>
 
                         <div class="admin-settings-row">
-                            <label class="field-label admin-row-label" for="admin-setting-section-wise">Advanced AI (Long Manuscripts)</label>
-                            <div class="admin-advanced-grid">
+                            <div class="field-label admin-row-label" id="admin-advanced-ai-label">Advanced AI (Long Manuscripts)</div>
+                            <div class="admin-advanced-grid" role="group" aria-labelledby="admin-advanced-ai-label">
                                 <label class="checkbox-item"><input type="checkbox" id="admin-setting-section-wise" checked><span>Section-wise mode</span></label>
                                 <input id="admin-setting-section-threshold-chars" class="input-field" type="number" min="4000" max="120000" step="500" value="12000" placeholder="Section threshold chars" />
                                 <input id="admin-setting-section-threshold-paragraphs" class="input-field" type="number" min="20" max="1000" step="5" value="90" placeholder="Section threshold paragraphs" />

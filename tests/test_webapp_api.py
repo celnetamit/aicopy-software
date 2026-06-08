@@ -1788,6 +1788,24 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="admin-editing-mode-help"', html)
         self.assertIn('id="admin-tone-help"', html)
         self.assertIn('id="admin-rewrite-strength-help"', html)
+        self.assertIn('id="admin-ai-provider-label"', html)
+        self.assertIn('role="group" aria-labelledby="admin-ai-provider-label"', html)
+
+        index_path = os.path.join(os.path.dirname(__file__), "..", "web", "index.html")
+        with open(index_path, "r", encoding="utf-8") as handle:
+            index_source = handle.read()
+        self.assertIn('id="admin-editing-group-label"', index_source)
+        self.assertIn('role="group" aria-labelledby="admin-editing-group-label"', index_source)
+        self.assertIn('id="admin-ollama-transport-label"', index_source)
+        self.assertIn('role="group" aria-labelledby="admin-ollama-transport-label"', index_source)
+        self.assertIn('id="admin-advanced-ai-label"', index_source)
+        self.assertIn('role="group" aria-labelledby="admin-advanced-ai-label"', index_source)
+
+        task_detail_path = os.path.join(os.path.dirname(__file__), "..", "web", "task_detail.html")
+        with open(task_detail_path, "r", encoding="utf-8") as handle:
+            task_detail_source = handle.read()
+        self.assertIn('id="admin-advanced-ai-label"', task_detail_source)
+        self.assertIn('role="group" aria-labelledby="admin-advanced-ai-label"', task_detail_source)
 
         runtime_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "runtime.js")
         with open(runtime_path, "r", encoding="utf-8") as handle:
@@ -1818,6 +1836,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("function updateAdminEditingControlsHint", admin_global_source)
         self.assertIn("Saving global settings...", admin_global_source)
         self.assertIn("Global settings loaded.", admin_global_source)
+        self.assertIn("closest('.password-field')", admin_global_source)
 
     def test_admin_reference_validation_diagnostics_requires_admin(self):
         self._login("member@conwiz.in")

@@ -40,6 +40,13 @@ function bindPasswordToggle(inputEl, toggleBtn, labels) {
     update();
 }
 
+function getPasswordFieldWrapper(inputEl) {
+    if (!inputEl || typeof inputEl.closest !== 'function') {
+        return null;
+    }
+    return inputEl.closest('.password-field');
+}
+
 function getModelSuggestionsForProvider(provider, ollamaModels) {
     const selected = String(provider || '').trim().toLowerCase();
     if (selected === 'gemini') return ['gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -90,13 +97,16 @@ function updateAdminGlobalAiProviderUI(forceDefaultModel) {
     const usesOpenrouterKey = provider === 'openrouter';
     const usesAgentRouterKey = provider === 'agent_router';
     const usesGeminiKey = provider === 'gemini';
+    const geminiKeyField = getPasswordFieldWrapper(adminGlobalDom.adminSettingGeminiKey);
+    const openrouterKeyField = getPasswordFieldWrapper(adminGlobalDom.adminSettingOpenrouterKey);
+    const agentRouterKeyField = getPasswordFieldWrapper(adminGlobalDom.adminSettingAgentRouterKey);
     if (adminGlobalDom.adminSettingGeminiKey) adminGlobalDom.adminSettingGeminiKey.disabled = !usesGeminiKey;
     if (adminGlobalDom.adminSettingOpenrouterKey) adminGlobalDom.adminSettingOpenrouterKey.disabled = !usesOpenrouterKey;
     if (adminGlobalDom.adminSettingAgentRouterKey) adminGlobalDom.adminSettingAgentRouterKey.disabled = !usesAgentRouterKey;
     if (adminGlobalDom.adminSettingOllamaHost) adminGlobalDom.adminSettingOllamaHost.disabled = provider !== 'ollama';
-    setElementVisible(adminGlobalDom.adminSettingGeminiKey, usesGeminiKey);
-    setElementVisible(adminGlobalDom.adminSettingOpenrouterKey, usesOpenrouterKey);
-    setElementVisible(adminGlobalDom.adminSettingAgentRouterKey, usesAgentRouterKey);
+    setElementVisible(geminiKeyField, usesGeminiKey);
+    setElementVisible(openrouterKeyField, usesOpenrouterKey);
+    setElementVisible(agentRouterKeyField, usesAgentRouterKey);
     setElementVisible(adminGlobalDom.adminSettingOllamaHost, provider === 'ollama');
 
     adminGlobalDom.adminSettingAiModel.placeholder = provider === 'gemini'
