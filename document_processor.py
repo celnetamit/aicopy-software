@@ -1087,7 +1087,7 @@ Final consistent manuscript:"""
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.3},
+            "options": {"temperature": 0.1},
         }
 
         attempts = retry_count + 1
@@ -1132,7 +1132,7 @@ Final consistent manuscript:"""
 
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.3},
+            "generationConfig": {"temperature": 0.1},
         }
 
         try:

@@ -2911,7 +2911,7 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
 /* Premium Split-Canvas Interface */
 .split-canvas-container {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 20px;
     height: 100%;
     width: 100%;
@@ -2920,6 +2920,10 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.05);
     overflow: hidden;
+}
+
+.pane-left {
+    display: none !important;
 }
 
 .split-pane {
