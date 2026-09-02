@@ -2,7 +2,7 @@
 
 import re
 
-from bottle import HTTPResponse, static_file
+from bottle import HTTPResponse, request, static_file
 
 
 def register_page_routes(app, deps):
@@ -43,9 +43,22 @@ def register_page_routes(app, deps):
         return asset
 
 
+# Assets are requested with a ?v=<ASSET_VERSION> cache buster, so the bytes at a
+# given URL never change and can be cached indefinitely.
+_IMMUTABLE_ASSET_SUFFIXES = (".js", ".css", ".woff", ".woff2", ".ttf", ".otf", ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico")
+_STATIC_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
 def register_static_routes(app, deps):
     @app.get("/<asset_path:path>")
     def serve_static_assets(asset_path: str):
         if asset_path.startswith("api/"):
             return HTTPResponse(status=404, body="Not found")
-        return static_file(asset_path, root=deps.web_dir)
+        asset = static_file(asset_path, root=deps.web_dir)
+        versioned = bool(str(request.query.get("v", "") or "").strip())
+        if versioned and str(asset_path or "").lower().endswith(_IMMUTABLE_ASSET_SUFFIXES):
+            try:
+                asset.set_header("Cache-Control", _STATIC_CACHE_CONTROL)
+            except Exception:
+                pass
+        return asset

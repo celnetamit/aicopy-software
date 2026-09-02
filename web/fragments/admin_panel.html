@@ -1,0 +1,429 @@
+<!--
+  Shared admin panel markup.
+
+  index.html and task_detail.html previously carried separate copies that had
+  drifted by 29 element ids. Because the admin settings form posts a full
+  payload, saving from the shell with the smaller copy silently reset every
+  control it did not render. Both shells now include this one file.
+-->
+    <div class="setup-wizard-backdrop hidden" id="admin-panel-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-panel-title">
+        <div class="setup-wizard-card admin-panel-card">
+            <h2 id="admin-panel-title">Admin Dashboard</h2>
+            <p class="setup-wizard-subtitle">Monitor users and activity events in real time.</p>
+
+            <div class="admin-panel-actions">
+                <button class="btn-secondary btn-small" id="admin-refresh-users-btn" type="button">Refresh Users</button>
+                <button class="btn-secondary btn-small" id="admin-refresh-audit-btn" type="button">Refresh Activity</button>
+                <button class="btn-secondary btn-small" id="admin-close-panel-btn" type="button">Back to Editor</button>
+            </div>
+
+            <div class="admin-grid">
+                <section class="admin-block">
+                    <h3>Global Settings</h3>
+                    <div class="admin-settings-stack">
+                        <div class="admin-settings-row">
+                            <div class="field-label admin-row-label" id="admin-editing-group-label">Editing</div>
+                            <div class="admin-check-grid" role="group" aria-labelledby="admin-editing-group-label">
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-spelling" checked><span>Spelling</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-sentence-case" checked><span>Sentence Case</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-punctuation" checked><span>Punctuation</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-chicago-style" checked><span>Chicago</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-cmos-strict" checked><span>CMOS Strict</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-online-reference-validation" checked><span>Online Ref Validation</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-online-reference-serper-fallback" checked><span>Serper Fallback</span></label>
+                            </div>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-doi-insertion-mode">DOI Insertion Mode</label>
+                            <select id="admin-setting-doi-insertion-mode" class="input-field">
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="strict">Strict</option>
+                            </select>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-online-reference-validation-admin-cap">Reference Validation Cap</label>
+                            <input
+                                id="admin-setting-online-reference-validation-admin-cap"
+                                class="input-field"
+                                type="number"
+                                min="1"
+                                max="500"
+                                step="1"
+                                value="150"
+                                placeholder="Max refs per manuscript"
+                            />
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-auto-resolve-unresolved-references">Verified DOI Auto-Resolve</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-auto-resolve-unresolved-references" checked>
+                                    <span>Auto-resolve unresolved references when confidence is high</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-auto-heal-bibliography">Autopilot Healing</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-autopilot-auto-heal-bibliography" checked>
+                                    <span>Enable bibliography auto-heal in Autopilot</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-heal-threshold">Autopilot Heal Threshold</label>
+                            <input
+                                id="admin-setting-autopilot-heal-threshold"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="200"
+                                step="1"
+                                value="1"
+                                placeholder="Min reference issues before auto-heal"
+                            />
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-min-overall-confidence">Autopilot Min Overall Confidence</label>
+                            <input
+                                id="admin-setting-autopilot-min-overall-confidence"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value="0.72"
+                                placeholder="0.00 - 1.00"
+                            />
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-autopilot-min-reference-confidence">Autopilot Min Reference Confidence</label>
+                            <input
+                                id="admin-setting-autopilot-min-reference-confidence"
+                                class="input-field"
+                                type="number"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value="0.62"
+                                placeholder="0.00 - 1.00"
+                            />
+                        </div>
+
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-domain-profile">Domain Profile</label>
+                            <select id="admin-setting-domain-profile" class="input-field">
+                                <option value="auto" selected>Auto Detect</option>
+                                <option value="general">General</option>
+                                <option value="medical">Medical</option>
+                                <option value="engineering">Engineering</option>
+                                <option value="law">Law</option>
+                            </select>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-editing-mode">Editing Mode</label>
+                            <select id="admin-setting-editing-mode" class="input-field">
+                                <option value="copyedit" selected>Copyedit</option>
+                                <option value="proofread">Proofread</option>
+                                <option value="clarity">Clarity</option>
+                                <option value="tone_adjust">Tone Adjust</option>
+                                <option value="concise">Concise</option>
+                            </select>
+                            <p class="hint-text" id="admin-editing-mode-help">Copyedit balances correctness and readability with minimal meaning drift.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-tone">Target Tone</label>
+                            <select id="admin-setting-tone" class="input-field">
+                                <option value="neutral" selected>Neutral</option>
+                                <option value="formal">Formal</option>
+                                <option value="informal">Informal</option>
+                                <option value="academic">Academic</option>
+                                <option value="business">Business</option>
+                                <option value="technical">Technical</option>
+                                <option value="marketing">Marketing</option>
+                                <option value="legal">Legal</option>
+                                <option value="casual">Casual</option>
+                            </select>
+                            <p class="hint-text" id="admin-tone-help">Neutral keeps outputs consistent across manuscript types.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-rewrite-strength">Rewrite Strength</label>
+                            <select id="admin-setting-rewrite-strength" class="input-field">
+                                <option value="minimal" selected>Minimal</option>
+                                <option value="moderate">Moderate</option>
+                            </select>
+                            <p class="hint-text" id="admin-rewrite-strength-help">Minimal is safer for preserving claims, numbers, and citations.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-explain-edits">Edit Explanations</label>
+                            <div class="admin-check-grid">
+                                <label class="checkbox-item">
+                                    <input type="checkbox" id="admin-setting-explain-edits">
+                                    <span>Include grouped explanations of key edits</span>
+                                </label>
+                            </div>
+                            <p class="hint-text">Recommended for QA review and user trust in AI-assisted edits.</p>
+                        </div>
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-cmos-profile">CMOS Profile</label>
+                            <select id="admin-setting-cmos-profile" class="input-field">
+                                <option value="core" selected>Core</option>
+                                <option value="strict">Strict</option>
+                                <option value="journal_custom">Journal-Custom</option>
+                            </select>
+                        </div>
+
+                        <div class="admin-settings-row">
+                            <label class="field-label admin-row-label" for="admin-setting-custom-terms">Custom Terms (Global)</label>
+                            <textarea id="admin-setting-custom-terms" class="input-field terms-box" placeholder="One term per line"></textarea>
+                        </div>
+
+                        <div class="admin-settings-row">
+                            <div class="field-label admin-row-label" id="admin-ai-provider-label">AI Provider Settings</div>
+                            <div class="admin-provider-grid" role="group" aria-labelledby="admin-ai-provider-label">
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-ai-enabled" checked><span>Enable AI</span></label>
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-ai-first-cmos"><span>AI-first CMOS copy editor</span></label>
+                                <select id="admin-setting-ai-provider" class="input-field">
+                                    <option value="ollama">Ollama</option>
+                                    <option value="gemini">Gemini</option>
+                                    <option value="openrouter" selected>OpenRouter</option>
+                                    <option value="agent_router">Agent Router</option>
+                                </select>
+                                <input id="admin-setting-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model name" list="admin-setting-ai-model-list" />
+                                <datalist id="admin-setting-ai-model-list"></datalist>
+                                <input id="admin-setting-ai-temperature" class="input-field" type="number" min="0" max="1" step="0.05" value="0.1" placeholder="Temperature (0-1)" title="Sampling temperature for every AI provider. Lower is more literal and reproducible; copyediting wants 0.1." />
+                                <input id="admin-setting-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
+                                <div class="password-field">
+                                    <input id="admin-setting-gemini-key" class="input-field password-field-input" type="password" placeholder="Gemini API key (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-gemini-key-toggle" type="button" aria-label="Show Gemini API key">Show</button>
+                                </div>
+                                <div class="password-field">
+                                    <input id="admin-setting-openrouter-key" class="input-field password-field-input" type="password" placeholder="OpenRouter API key (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-openrouter-key-toggle" type="button" aria-label="Show OpenRouter API key">Show</button>
+                                </div>
+                                <div class="password-field">
+                                    <input id="admin-setting-agent-router-key" class="input-field password-field-input" type="password" placeholder="AgentRouter token (server-side)" />
+                                    <button class="btn-secondary btn-small password-toggle-btn" id="admin-setting-agent-router-key-toggle" type="button" aria-label="Show AgentRouter token">Show</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="admin-settings-row">
+                            <div class="field-label admin-row-label" id="admin-ollama-transport-label">Ollama Transport</div>
+                            <div class="admin-advanced-grid" role="group" aria-labelledby="admin-ollama-transport-label">
+                                <input id="admin-setting-ollama-generate-timeout-seconds" class="input-field" type="number" min="1" max="600" step="1" value="60" placeholder="Generate timeout seconds" />
+                                <input id="admin-setting-ollama-health-timeout-seconds" class="input-field" type="number" min="1" max="60" step="1" value="5" placeholder="Health timeout seconds" />
+                                <input id="admin-setting-ollama-retry-count" class="input-field" type="number" min="0" max="3" step="1" value="0" placeholder="Retry count" />
+                                <input id="admin-setting-ollama-retry-backoff-seconds" class="input-field" type="number" min="0" max="30" step="0.25" value="0" placeholder="Retry backoff seconds" />
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-ollama-fallback-model-retry" checked><span>Fallback model retry</span></label>
+                            </div>
+                        </div>
+
+                        <div class="admin-settings-row">
+                            <div class="field-label admin-row-label" id="admin-advanced-ai-label">Advanced AI (Long Manuscripts)</div>
+                            <div class="admin-advanced-grid" role="group" aria-labelledby="admin-advanced-ai-label">
+                                <label class="checkbox-item"><input type="checkbox" id="admin-setting-section-wise" checked><span>Section-wise mode</span></label>
+                                <input id="admin-setting-section-threshold-chars" class="input-field" type="number" min="4000" max="120000" step="500" value="12000" placeholder="Section threshold chars" />
+                                <input id="admin-setting-section-threshold-paragraphs" class="input-field" type="number" min="20" max="1000" step="5" value="90" placeholder="Section threshold paragraphs" />
+                                <input id="admin-setting-section-chunk-chars" class="input-field" type="number" min="1800" max="30000" step="200" value="5500" placeholder="Section chunk chars" />
+                                <input id="admin-setting-section-chunk-lines" class="input-field" type="number" min="8" max="200" step="1" value="28" placeholder="Section chunk lines" />
+                                <input id="admin-setting-global-consistency-max-chars" class="input-field" type="number" min="6000" max="120000" step="1000" value="18000" placeholder="Global consistency max chars" />
+                            </div>
+                        </div>
+
+                        <div class="admin-settings-row admin-settings-actions">
+                            <span class="field-label admin-row-label">&nbsp;</span>
+                            <div>
+                                <div class="inline-row admin-action-row">
+                                    <button class="btn-secondary btn-small" id="admin-load-global-settings-btn" type="button">Reload Global Settings</button>
+                                    <button class="btn-primary btn-small" id="admin-save-global-settings-btn" type="button">Save Global Settings</button>
+                                </div>
+                                <p class="hint-text" id="admin-global-settings-status">Global settings are applied to every user at processing time.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="admin-block">
+                    <h3>API Validation</h3>
+                    <div class="admin-api-grid">
+                        <select id="admin-ai-provider" class="input-field">
+                            <option value="openrouter" selected>OpenRouter</option>
+                            <option value="agent_router">Agent Router</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="ollama">Ollama</option>
+                        </select>
+                        <input id="admin-ai-model" class="input-field" type="text" value="openrouter/auto" placeholder="Model (optional)" list="admin-ai-model-list" />
+                        <datalist id="admin-ai-model-list"></datalist>
+                        <div class="password-field" id="admin-ai-key-field">
+                            <input id="admin-ai-key" class="input-field password-field-input" type="password" placeholder="API key (optional, uses server env if empty)" />
+                            <button class="btn-secondary btn-small password-toggle-btn" id="admin-ai-key-toggle" type="button" aria-label="Show API key">Show</button>
+                        </div>
+                        <input id="admin-ai-ollama-host" class="input-field" type="text" value="http://localhost:11434" placeholder="Ollama host" />
+                        <button class="btn-secondary btn-small" id="admin-validate-ai-btn" type="button">Validate API</button>
+                    </div>
+                    <p class="hint-text" id="admin-ai-validation-help">Leave fields blank to validate with saved global settings or server environment values.</p>
+                    <p class="hint-text" id="admin-ai-validation-result">Run a provider check from server runtime.</p>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Reference Validation Diagnostics</h3>
+                    <div class="inline-row admin-action-row">
+                        <button class="btn-secondary btn-small" id="admin-refresh-reference-diagnostics-btn" type="button">Refresh Diagnostics</button>
+                        <button class="btn-secondary btn-small" id="admin-reset-reference-diagnostics-btn" type="button">Reset Cache</button>
+                    </div>
+                    <p class="hint-text" id="admin-reference-diagnostics-status">Shows safe Serper/cache status without exposing API keys.</p>
+                    <div class="hint-text" id="admin-reference-unresolved-trend-summary">Unresolved trends: no runs yet.</div>
+                    <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-output">No diagnostics loaded yet.</pre>
+                    <pre class="admin-diagnostics-json" id="admin-reference-diagnostics-trends-output">No unresolved trend snapshot yet.</pre>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Journal Style Catalog</h3>
+                    <p class="hint-text">Inspect bibliographic style profiles and check real-time compatibility Guidelines Match Scores for loaded manuscripts.</p>
+                    
+                    <div class="inline-row admin-action-row" style="margin-bottom: 12px; gap: 10px;">
+                        <input type="text" id="admin-catalog-search" class="input-field" placeholder="Search by name, ID, or rules..." style="flex: 1;" />
+                        <button class="btn-secondary btn-small" id="admin-refresh-catalog-btn" type="button">Refresh Catalog</button>
+                    </div>
+
+                    <div id="admin-catalog-grid" class="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px;">
+                        <p class="hint-text">Loading style profiles...</p>
+                    </div>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Journals Records</h3>
+                    <p class="hint-text" id="admin-journals-status">Manage journal records used by Top-3 recommendation.</p>
+                    <div class="inline-row admin-action-row" style="margin-bottom: 12px; gap: 10px;">
+                        <button class="btn-secondary btn-small" id="admin-refresh-journals-btn" type="button">Refresh Journals</button>
+                        <input id="admin-import-journals-file" type="file" accept=".csv,text/csv" style="display:none;" />
+                        <button class="btn-secondary btn-small" id="admin-import-journals-btn" type="button">Import CSV</button>
+                        <button class="btn-secondary btn-small" id="admin-export-journals-btn" type="button">Export CSV</button>
+                    </div>
+                    <div class="admin-api-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+                        <input id="admin-journal-name" class="input-field" type="text" placeholder="Journal name*" />
+                        <input id="admin-journal-publisher" class="input-field" type="text" placeholder="Publisher" />
+                        <input id="admin-journal-scope" class="input-field" type="text" placeholder="Scope summary" />
+                        <input id="admin-journal-quartile" class="input-field" type="text" placeholder="Quartile (Q1/Q2/Q3/Q4)" />
+                        <input id="admin-journal-keywords" class="input-field" type="text" placeholder="Keywords (comma-separated)" />
+                        <input id="admin-journal-subjects" class="input-field" type="text" placeholder="Subject areas (comma-separated)" />
+                        <input id="admin-journal-article-types" class="input-field" type="text" placeholder="Article types (comma-separated)" />
+                        <input id="admin-journal-submission-url" class="input-field" type="text" placeholder="Submission URL" />
+                        <input id="admin-journal-issn-print" class="input-field" type="text" placeholder="ISSN print" />
+                        <input id="admin-journal-issn-online" class="input-field" type="text" placeholder="ISSN online" />
+                        <input id="admin-journal-apc-usd" class="input-field" type="number" min="0" step="0.01" placeholder="APC (USD)" />
+                        <label class="checkbox-label"><input id="admin-journal-open-access" type="checkbox" /> Open access</label>
+                    </div>
+                    <div class="inline-row admin-action-row" style="margin-top: 12px;">
+                        <button class="btn-secondary btn-small" id="admin-save-journal-btn" type="button">Add Journal</button>
+                    </div>
+                    <div class="admin-table-wrap" style="margin-top: 12px;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Journal</th>
+                                    <th>Publisher</th>
+                                    <th>Quartile</th>
+                                    <th>Open Access</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-journals-body">
+                                <tr><td colspan="6">No journal records loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+
+                <section class="admin-block">
+                    <h3>Users</h3>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-body">
+                                <tr><td colspan="4">No users loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Activity Timeline</h3>
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Actor</th>
+                                    <th>Event</th>
+                                    <th>Target</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-audit-body">
+                                <tr><td colspan="4">No events loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Error Log</h3>
+                    <p class="hint-text" id="admin-errors-summary">No errors loaded yet.</p>
+
+                    <div class="inline-row admin-action-row" style="margin-bottom: 10px; gap: 8px; flex-wrap: wrap;">
+                        <select id="admin-errors-level" class="input-field" style="max-width: 150px;">
+                            <option value="">All levels</option>
+                            <option value="ERROR">Errors only</option>
+                            <option value="WARNING">Warnings only</option>
+                        </select>
+                        <select id="admin-errors-since" class="input-field" style="max-width: 170px;">
+                            <option value="24">Last 24 hours</option>
+                            <option value="168">Last 7 days</option>
+                            <option value="720">Last 30 days</option>
+                            <option value="0">All retained</option>
+                        </select>
+                        <input type="text" id="admin-errors-code" class="input-field" placeholder="Filter by code" style="max-width: 220px;" />
+                        <button class="btn-secondary btn-small" id="admin-refresh-errors-btn" type="button">Refresh Errors</button>
+                        <button class="btn-secondary btn-small" id="admin-purge-errors-btn" type="button">Clear Error Log</button>
+                    </div>
+
+                    <div class="admin-table-wrap">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Last seen</th>
+                                    <th>Level</th>
+                                    <th>Code</th>
+                                    <th>Source</th>
+                                    <th>Count</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-errors-body">
+                                <tr><td colspan="6">No errors loaded yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <pre id="admin-error-detail" class="admin-error-detail hidden"></pre>
+                </section>
+
+                <section class="admin-block">
+                    <h3>Loaded Task Structure</h3>
+                    <div id="admin-docx-structure-summary">
+                        <p class="hint-text">Select a task from the editor history to inspect its DOCX structure summary here.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>

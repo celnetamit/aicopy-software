@@ -292,6 +292,7 @@ function applyAdminGlobalSettingsForm(settings) {
     if (adminGlobalDom.adminSettingAiFirstCmos) adminGlobalDom.adminSettingAiFirstCmos.checked = ai.ai_first_cmos === true;
     if (adminGlobalDom.adminSettingAiProvider) adminGlobalDom.adminSettingAiProvider.value = String(ai.provider || 'ollama');
     if (adminGlobalDom.adminSettingAiModel) adminGlobalDom.adminSettingAiModel.value = String(ai.model || '');
+    if (adminGlobalDom.adminSettingAiTemperature) adminGlobalDom.adminSettingAiTemperature.value = adminGlobalHelpers.clampNumber(ai.temperature, 0, 1, 0.1);
     if (adminGlobalDom.adminSettingOllamaHost) adminGlobalDom.adminSettingOllamaHost.value = String(ai.ollama_host || 'http://localhost:11434');
     if (adminGlobalDom.adminSettingGeminiKey) adminGlobalDom.adminSettingGeminiKey.value = String(ai.gemini_api_key || '');
     if (adminGlobalDom.adminSettingOpenrouterKey) adminGlobalDom.adminSettingOpenrouterKey.value = String(ai.openrouter_api_key || '');
@@ -365,6 +366,7 @@ function collectAdminGlobalSettingsForm() {
             ai_first_cmos: adminGlobalDom.adminSettingAiFirstCmos ? adminGlobalDom.adminSettingAiFirstCmos.checked : false,
             provider: adminGlobalDom.adminSettingAiProvider ? String(adminGlobalDom.adminSettingAiProvider.value || 'ollama') : 'ollama',
             model: adminGlobalDom.adminSettingAiModel ? String(adminGlobalDom.adminSettingAiModel.value || '').trim() : '',
+            temperature: adminGlobalHelpers.clampNumber(adminGlobalDom.adminSettingAiTemperature ? adminGlobalDom.adminSettingAiTemperature.value : 0.1, 0, 1, 0.1),
             ollama_host: adminGlobalDom.adminSettingOllamaHost ? String(adminGlobalDom.adminSettingOllamaHost.value || '').trim() : '',
             gemini_api_key: adminGlobalDom.adminSettingGeminiKey ? String(adminGlobalDom.adminSettingGeminiKey.value || '').trim() : '',
             openrouter_api_key: adminGlobalDom.adminSettingOpenrouterKey ? String(adminGlobalDom.adminSettingOpenrouterKey.value || '').trim() : '',

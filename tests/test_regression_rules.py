@@ -373,7 +373,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(report.get("summary", {}).get("total_issues"), 0)
         self.assertEqual(report.get("messages"), [])
 
-    @patch("chicago_editor.requests.get")
+    @patch("chicago_editor.requests.Session.get")
     def test_online_reference_validation_can_be_disabled(self, mock_get):
         source = (
             "Introduction cites [1].\n"
@@ -388,7 +388,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertFalse(online.get("enabled"))
         mock_get.assert_not_called()
 
-    @patch("chicago_editor.requests.get")
+    @patch("chicago_editor.requests.Session.get")
     def test_online_reference_validation_verifies_matching_doi(self, mock_get):
         source = (
             "Introduction cites [1].\n"
@@ -426,7 +426,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertEqual(online.get("entries", [])[0].get("matched_doi"), "10.1000/alpha")
         self.assertIn("doi.org", str(online.get("entries", [])[0].get("matched_source_url") or ""))
 
-    @patch("chicago_editor.requests.get")
+    @patch("chicago_editor.requests.Session.get")
     def test_online_reference_validation_search_fallback_finds_match(self, mock_get):
         source = (
             "Introduction cites [1].\n"
@@ -478,7 +478,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertNotIn("10.1000/secret", query)
         self.assertNotIn("user@example.com", query)
 
-    @patch("chicago_editor.requests.post")
+    @patch("chicago_editor.requests.Session.post")
     def test_online_reference_validation_serper_fallback_uses_env_and_cache(self, mock_post):
         source = (
             "Introduction cites [1].\n"
@@ -506,7 +506,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         mock_post.return_value = serper_response
 
         with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
-            with patch("chicago_editor.requests.get", return_value=crossref_empty) as mock_get:
+            with patch("chicago_editor.requests.Session.get", return_value=crossref_empty) as mock_get:
                 report_one = self.editor.build_citation_reference_validator_report(
                     source,
                     {"online_reference_validation": True},
@@ -531,7 +531,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(int(metrics.get("cache_hits", 0)), 1)
         self.assertGreaterEqual(int(metrics.get("serper_cache_hits", 0)), 1)
 
-    @patch("chicago_editor.requests.post")
+    @patch("chicago_editor.requests.Session.post")
     def test_online_reference_validation_cache_reuse_across_editor_instances(self, mock_post):
         source = (
             "Introduction cites [1].\n"
@@ -560,7 +560,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
 
         editor_two = ChicagoEditor()
         with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
-            with patch("chicago_editor.requests.get", return_value=crossref_empty) as mock_get:
+            with patch("chicago_editor.requests.Session.get", return_value=crossref_empty) as mock_get:
                 report_one = self.editor.build_citation_reference_validator_report(
                     source,
                     {"online_reference_validation": True},
@@ -580,7 +580,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         self.assertGreaterEqual(int(metrics_two.get("cache_hits", 0)), 1)
         self.assertGreaterEqual(int(metrics_two.get("serper_cache_hits", 0)), 1)
 
-    @patch("chicago_editor.requests.get")
+    @patch("chicago_editor.requests.Session.get")
     def test_online_reference_validation_diagnostics_share_last_run_metrics(self, mock_get):
         source = (
             "Introduction cites [1].\n"
@@ -696,7 +696,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         chips = result.get("auto_resolve_chips", [])
         self.assertIn("auto_resolve:no", chips)
 
-    @patch("chicago_editor.requests.post")
+    @patch("chicago_editor.requests.Session.post")
     def test_online_reference_validation_serper_fallback_can_be_disabled(self, mock_post):
         source = (
             "Introduction cites [1].\n"
@@ -715,7 +715,7 @@ class ChicagoEditorRegressionTests(unittest.TestCase):
         openalex_empty.json.return_value = {"results": []}
 
         with patch.dict("os.environ", {"SERPER_API_KEY": "serper-test-key"}, clear=False):
-            with patch("chicago_editor.requests.get", side_effect=[crossref_empty, openalex_empty]):
+            with patch("chicago_editor.requests.Session.get", side_effect=[crossref_empty, openalex_empty]):
                 report = self.editor.build_citation_reference_validator_report(
                     source,
                     {

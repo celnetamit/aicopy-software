@@ -199,8 +199,9 @@
                     const job = data && data.job ? data.job : {};
                     const pct = typeof job.progress_percent === 'number' ? job.progress_percent : null;
                     const stage = typeof job.stage === 'string' ? job.stage : 'Processing…';
-                    const taskStatus = data && data.task ? String(data.task.status || '') : '';
-                    const runStatus = data && data.task_run ? String(data.task_run.status || '') : '';
+                    const summary = data ? (data.task_summary || data.task) : null;
+                    const taskStatus = summary ? String(summary.status || '').toUpperCase() : '';
+                    const runStatus = data && data.task_run ? String(data.task_run.status || '').toUpperCase() : '';
 
                     if (pct !== null) updateProgressOverlay(pct, stage);
 
@@ -210,7 +211,10 @@
                         showBannerError('Bibliography healing failed. Check the task log for details.');
                         return;
                     }
-                    if (taskStatus === 'COMPLETED' || runStatus === 'SUCCEEDED') {
+                    // The store marks finished tasks PROCESSED (or REVIEW_REQUIRED);
+                    // 'COMPLETED' is kept for older payloads only.
+                    if (taskStatus === 'PROCESSED' || taskStatus === 'REVIEW_REQUIRED'
+                        || taskStatus === 'COMPLETED' || runStatus === 'SUCCEEDED') {
                         onHealingSucceeded(taskId);
                         return;
                     }

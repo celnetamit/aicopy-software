@@ -27,6 +27,7 @@ Source of truth: `routes/*.py` and `webapp.py`
 | POST | `/api/runtime-telemetry/reset` | Reset runtime telemetry |
 | POST | `/api/reset-session` | Reset in-memory/legacy session state |
 | GET | `/api/settings/runtime` | Effective runtime settings |
+| POST | `/api/client-errors` | Report an uncaught browser error into the server error log |
 
 ## Auth
 
@@ -64,6 +65,9 @@ Source of truth: `routes/*.py` and `webapp.py`
 | GET | `/api/admin/users` | List users |
 | POST | `/api/admin/users/<user_id>/status` | Activate/deactivate user |
 | GET | `/api/admin/audit-events` | List/filter audit events |
+| GET | `/api/admin/error-events` | List/filter recorded errors, with a summary (no tracebacks) |
+| GET | `/api/admin/error-events/<event_id>` | One error with its full traceback and context |
+| POST | `/api/admin/error-events/purge` | Clear the stored error log, or rows older than `older_than_days` |
 | GET | `/api/admin/global-settings` | Read admin global settings |
 | POST | `/api/admin/global-settings` | Save admin global settings |
 | GET | `/api/admin/reference-validation-diagnostics` | Reference validation diagnostics |

@@ -228,6 +228,10 @@ function bindAdminPanelEvents() {
     if (settingsPanelDom.adminClosePanelBtn) settingsPanelDom.adminClosePanelBtn.addEventListener('click', settingsPanelAuth.closeAdminPanel);
     if (settingsPanelDom.adminRefreshUsersBtn) settingsPanelDom.adminRefreshUsersBtn.addEventListener('click', settingsPanelAuth.refreshAdminUsers);
     if (settingsPanelDom.adminRefreshAuditBtn) settingsPanelDom.adminRefreshAuditBtn.addEventListener('click', settingsPanelAuth.refreshAdminAudit);
+    const adminErrorsModule = window.ManuscriptEditorApp.adminErrors || {};
+    if (typeof adminErrorsModule.bindAdminErrorControls === 'function') {
+        adminErrorsModule.bindAdminErrorControls();
+    }
     if (settingsPanelDom.adminRefreshReferenceDiagnosticsBtn) settingsPanelDom.adminRefreshReferenceDiagnosticsBtn.addEventListener('click', settingsPanelAuth.refreshAdminReferenceValidationDiagnostics);
     if (settingsPanelDom.adminResetReferenceDiagnosticsBtn) settingsPanelDom.adminResetReferenceDiagnosticsBtn.addEventListener('click', settingsPanelAuth.resetAdminReferenceValidationDiagnostics);
     if (settingsPanelDom.adminRefreshCatalogBtn) settingsPanelDom.adminRefreshCatalogBtn.addEventListener('click', settingsPanelAuth.refreshJournalProfiles);

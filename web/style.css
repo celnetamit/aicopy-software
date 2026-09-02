@@ -3844,3 +3844,41 @@ body.admin-dashboard-active #admin-panel-backdrop.hidden {
         gap: 8px;
     }
 }
+
+/* ---- Admin error log ---- */
+
+.admin-error-row {
+    cursor: pointer;
+}
+
+.admin-error-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.error-level-error {
+    color: #ffb8c2;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.error-level-warning {
+    color: #ffd58d;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.admin-error-detail {
+    margin-top: 12px;
+    padding: 12px 14px;
+    max-height: 340px;
+    overflow: auto;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #d7e2f4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}

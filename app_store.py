@@ -7,15 +7,17 @@ PostgreSQL in production and SQLite during local development/tests.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
 import uuid
 from urllib.parse import urlparse
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 try:
@@ -25,6 +27,8 @@ except Exception:  # pragma: no cover - optional in local/dev fallback
     psycopg = None
     dict_row = None
 
+
+SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000") or 5000)
 
 ROLE_ADMIN = "ADMIN"
 ROLE_USER = "USER"
@@ -97,6 +101,10 @@ class AppStore:
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
+            # Multiple gunicorn workers share one WAL file; without a busy timeout
+            # a concurrent writer raises "database is locked" immediately.
+            conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+            conn.execute("PRAGMA synchronous=NORMAL")
             self._conn = conn
             return
 
@@ -123,6 +131,12 @@ class AppStore:
             base += f" Original error: {exc}"
         return base
 
+    @staticmethod
+    def _row_to_dict(row) -> Dict[str, Any]:
+        if isinstance(row, sqlite3.Row):
+            return {k: row[k] for k in row.keys()}
+        return dict(row)
+
     def _execute(self, sql: str, params: Sequence[Any] = ()):
         with self._lock:
             cursor = self._conn.cursor()
@@ -132,24 +146,22 @@ class AppStore:
             return cursor
 
     def _query_one(self, sql: str, params: Sequence[Any] = ()) -> Optional[Dict[str, Any]]:
-        cursor = self._execute(sql, params)
-        row = cursor.fetchone()
+        # The fetch happens inside the lock: the process shares one connection,
+        # so stepping a cursor while another thread executes is not safe.
+        with self._lock:
+            cursor = self._conn.cursor()
+            cursor.execute(sql, params)
+            row = cursor.fetchone()
         if row is None:
             return None
-        if isinstance(row, sqlite3.Row):
-            return {k: row[k] for k in row.keys()}
-        return dict(row)
+        return self._row_to_dict(row)
 
     def _query_all(self, sql: str, params: Sequence[Any] = ()) -> List[Dict[str, Any]]:
-        cursor = self._execute(sql, params)
-        rows = cursor.fetchall() or []
-        out: List[Dict[str, Any]] = []
-        for row in rows:
-            if isinstance(row, sqlite3.Row):
-                out.append({k: row[k] for k in row.keys()})
-            else:
-                out.append(dict(row))
-        return out
+        with self._lock:
+            cursor = self._conn.cursor()
+            cursor.execute(sql, params)
+            rows = cursor.fetchall() or []
+        return [self._row_to_dict(row) for row in rows]
 
     def _init_schema(self):
         # When multiple Gunicorn workers boot at once, schema creation can race on PostgreSQL
@@ -281,12 +293,39 @@ class AppStore:
                 options_json TEXT,
                 result_json TEXT,
                 error TEXT,
+                progress_percent REAL DEFAULT 0,
+                stage TEXT DEFAULT '',
+                tokens_consumed INTEGER DEFAULT 0,
+                estimated_seconds_remaining INTEGER DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 started_at INTEGER,
                 finished_at INTEGER,
                 updated_at INTEGER NOT NULL,
                 FOREIGN KEY(task_id) REFERENCES tasks(id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
+        self._execute(
+            """
+            CREATE TABLE IF NOT EXISTS error_events (
+                id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                level TEXT NOT NULL,
+                source TEXT NOT NULL,
+                code TEXT NOT NULL,
+                message TEXT NOT NULL,
+                exception_type TEXT,
+                traceback TEXT,
+                request_method TEXT,
+                request_path TEXT,
+                status_code INTEGER,
+                actor_user_id TEXT,
+                task_id TEXT,
+                context_json TEXT,
+                occurrence_count INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL
             )
             """
         )
@@ -324,6 +363,49 @@ class AppStore:
         self._execute("CREATE INDEX IF NOT EXISTS idx_audit_events_type ON audit_events(event_type, created_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_app_settings_updated_at ON app_settings(updated_at)")
         self._execute("CREATE INDEX IF NOT EXISTS idx_journals_active_updated ON journals(is_active, updated_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_task_runs_task_status ON task_runs(task_id, status)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_error_events_seen ON error_events(last_seen_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_error_events_fingerprint ON error_events(fingerprint, last_seen_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_error_events_code ON error_events(code, last_seen_at)")
+        self._execute("CREATE INDEX IF NOT EXISTS idx_error_events_task ON error_events(task_id, last_seen_at)")
+
+        # Progress columns were added after the first release; bring older
+        # databases forward without a migration framework.
+        self._ensure_columns(
+            "task_runs",
+            (
+                ("progress_percent", "REAL DEFAULT 0"),
+                ("stage", "TEXT DEFAULT ''"),
+                ("tokens_consumed", "INTEGER DEFAULT 0"),
+                ("estimated_seconds_remaining", "INTEGER DEFAULT 0"),
+            ),
+        )
+
+    def _existing_columns(self, table: str) -> set:
+        try:
+            if self.backend == "sqlite":
+                rows = self._query_all(f"PRAGMA table_info({table})")
+                return {str(row.get("name") or "") for row in rows}
+            rows = self._query_all(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+                (table,),
+            )
+            return {str(row.get("column_name") or "") for row in rows}
+        except Exception:
+            return set()
+
+    def _ensure_columns(self, table: str, columns: Sequence[Tuple[str, str]]):
+        existing = self._existing_columns(table)
+        if not existing:
+            return
+        for column_name, column_type in columns:
+            if column_name in existing:
+                continue
+            try:
+                self._execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}")
+            except Exception:
+                # Another worker won the race, or the column already exists.
+                pass
 
     @staticmethod
     def _now_ts() -> int:
@@ -644,10 +726,25 @@ class AppStore:
         word_count: int,
         options: Dict[str, Any],
         reports: Dict[str, Any],
+        is_admin: bool = False,
     ) -> Optional[Dict[str, Any]]:
         now = self._now_ts()
-        self._execute(
-            """
+        params: List[Any] = [
+            corrected_text,
+            full_corrected_text,
+            int(word_count),
+            "PROCESSED",
+            self._safe_json_dump(options),
+            self._safe_json_dump(reports),
+            now,
+            now,
+            task_id,
+        ]
+        owner_clause = "" if is_admin else " AND user_id = ?"
+        if not is_admin:
+            params.append(user_id)
+
+        sql = f"""
             UPDATE tasks
             SET corrected_text = ?,
                 full_corrected_text = ?,
@@ -657,36 +754,12 @@ class AppStore:
                 reports_json = ?,
                 processed_at = ?,
                 updated_at = ?
-            WHERE id = ? AND user_id = ?
+            WHERE id = ?{owner_clause}
             """
-            if self.backend == "sqlite"
-            else
-            """
-            UPDATE tasks
-            SET corrected_text = %s,
-                full_corrected_text = %s,
-                word_count = %s,
-                status = %s,
-                options_json = %s,
-                reports_json = %s,
-                processed_at = %s,
-                updated_at = %s
-            WHERE id = %s AND user_id = %s
-            """,
-            (
-                corrected_text,
-                full_corrected_text,
-                int(word_count),
-                "PROCESSED",
-                self._safe_json_dump(options),
-                self._safe_json_dump(reports),
-                now,
-                now,
-                task_id,
-                user_id,
-            ),
-        )
-        return self.get_task_for_user(task_id=task_id, user_id=user_id, is_admin=False)
+        if self.backend != "sqlite":
+            sql = sql.replace("?", "%s")
+        self._execute(sql, tuple(params))
+        return self.get_task_for_user(task_id=task_id, user_id=user_id, is_admin=is_admin)
 
     def update_task_corrected_text(
         self,
@@ -695,34 +768,30 @@ class AppStore:
         user_id: str,
         corrected_text: str,
         reports: Dict[str, Any],
+        is_admin: bool = False,
     ) -> Optional[Dict[str, Any]]:
         now = self._now_ts()
-        self._execute(
-            """
+        params: List[Any] = [
+            corrected_text,
+            self._safe_json_dump(reports),
+            now,
+            task_id,
+        ]
+        owner_clause = "" if is_admin else " AND user_id = ?"
+        if not is_admin:
+            params.append(user_id)
+
+        sql = f"""
             UPDATE tasks
             SET corrected_text = ?,
                 reports_json = ?,
                 updated_at = ?
-            WHERE id = ? AND user_id = ?
+            WHERE id = ?{owner_clause}
             """
-            if self.backend == "sqlite"
-            else
-            """
-            UPDATE tasks
-            SET corrected_text = %s,
-                reports_json = %s,
-                updated_at = %s
-            WHERE id = %s AND user_id = %s
-            """,
-            (
-                corrected_text,
-                self._safe_json_dump(reports),
-                now,
-                task_id,
-                user_id,
-            ),
-        )
-        return self.get_task_for_user(task_id=task_id, user_id=user_id, is_admin=False)
+        if self.backend != "sqlite":
+            sql = sql.replace("?", "%s")
+        self._execute(sql, tuple(params))
+        return self.get_task_for_user(task_id=task_id, user_id=user_id, is_admin=is_admin)
 
     def upsert_task_file(
         self,
@@ -798,6 +867,7 @@ class AppStore:
         user_id: str,
         status: str = "PENDING",
         options: Optional[Dict[str, Any]] = None,
+        job_id: str = "",
     ) -> Dict[str, Any]:
         now = self._now_ts()
         run_id = uuid.uuid4().hex
@@ -823,7 +893,7 @@ class AppStore:
                 str(task_id or ""),
                 str(user_id or ""),
                 str(status or "PENDING"),
-                "",
+                str(job_id or ""),
                 self._safe_json_dump(options or {}),
                 "{}",
                 "",
@@ -843,49 +913,127 @@ class AppStore:
         job_id: str = "",
         error: str = "",
         result: Optional[Dict[str, Any]] = None,
+        progress_percent: Optional[float] = None,
+        stage: Optional[str] = None,
+        tokens_consumed: Optional[int] = None,
+        estimated_seconds_remaining: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
+        """Apply a targeted column update.
+
+        Only the fields explicitly supplied are written, so concurrent writers
+        (the request thread setting job_id, the worker thread setting status)
+        cannot clobber each other's columns.
+        """
         now = self._now_ts()
-        current = self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
-        if current is None:
-            return None
-        next_status = str(status or current.get("status") or "PENDING")
-        next_job_id = str(job_id or current.get("job_id") or "")
-        next_error = str(error or current.get("error") or "")
-        next_result = result if isinstance(result, dict) else current.get("result", {})
-        started_at = int(current.get("started_at") or 0)
-        finished_at = int(current.get("finished_at") or 0)
+        sets: List[str] = []
+        params: List[Any] = []
 
-        if next_status == "RUNNING" and not started_at:
-            started_at = now
-        if next_status in ("SUCCEEDED", "FAILED") and not finished_at:
-            finished_at = now
+        next_status = str(status or "").strip()
+        if next_status:
+            sets.append("status = ?")
+            params.append(next_status)
+        if job_id:
+            sets.append("job_id = ?")
+            params.append(str(job_id))
+        if error:
+            sets.append("error = ?")
+            params.append(str(error))
+        if result is not None:
+            sets.append("result_json = ?")
+            params.append(self._safe_json_dump(result if isinstance(result, dict) else {}))
+        if progress_percent is not None:
+            sets.append("progress_percent = ?")
+            params.append(max(0.0, min(100.0, float(progress_percent))))
+        if stage is not None:
+            sets.append("stage = ?")
+            params.append(str(stage)[:400])
+        if tokens_consumed is not None:
+            sets.append("tokens_consumed = ?")
+            params.append(max(0, int(tokens_consumed)))
+        if estimated_seconds_remaining is not None:
+            sets.append("estimated_seconds_remaining = ?")
+            params.append(max(0, int(estimated_seconds_remaining)))
 
-        params: Sequence[Any] = (
-            next_status,
-            next_job_id,
-            self._safe_json_dump(next_result or {}),
-            next_error,
-            started_at or None,
-            finished_at or None,
-            now,
-            run_id,
+        # Timestamp transitions are applied in SQL so they never depend on a
+        # previously-read snapshot.
+        if next_status == "RUNNING":
+            sets.append("started_at = COALESCE(started_at, ?)")
+            params.append(now)
+        elif next_status in ("SUCCEEDED", "FAILED"):
+            sets.append("started_at = COALESCE(started_at, ?)")
+            params.append(now)
+            sets.append("finished_at = COALESCE(finished_at, ?)")
+            params.append(now)
+
+        if not sets:
+            return self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
+
+        sets.append("updated_at = ?")
+        params.append(now)
+
+        where = "id = ?" if is_admin else "id = ? AND user_id = ?"
+        params.append(run_id)
+        if not is_admin:
+            params.append(user_id)
+
+        sql = f"UPDATE task_runs SET {', '.join(sets)} WHERE {where}"
+        if self.backend != "sqlite":
+            sql = sql.replace("?", "%s")
+        self._execute(sql, tuple(params))
+        return self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
+
+    def reap_orphaned_task_runs(self, *, error: str = "Server restarted while this run was in progress") -> int:
+        """Fail runs left PENDING/RUNNING by a previous process and unstick their tasks.
+
+        The in-process job queue does not survive a restart, so any run still
+        marked active at boot has no worker behind it.
+        """
+        now = self._now_ts()
+        rows = self._query_all(
+            "SELECT id, task_id FROM task_runs WHERE status IN ('PENDING', 'RUNNING')"
         )
+        if not rows:
+            return 0
         self._execute(
             """
             UPDATE task_runs
-            SET status = ?, job_id = ?, result_json = ?, error = ?, started_at = ?, finished_at = ?, updated_at = ?
-            WHERE id = ?
+            SET status = 'FAILED', error = ?, finished_at = COALESCE(finished_at, ?), updated_at = ?
+            WHERE status IN ('PENDING', 'RUNNING')
             """
             if self.backend == "sqlite"
             else
             """
             UPDATE task_runs
-            SET status = %s, job_id = %s, result_json = %s, error = %s, started_at = %s, finished_at = %s, updated_at = %s
-            WHERE id = %s
+            SET status = 'FAILED', error = %s, finished_at = COALESCE(finished_at, %s), updated_at = %s
+            WHERE status IN ('PENDING', 'RUNNING')
             """,
-            params,
+            (str(error), now, now),
         )
-        return self.get_task_run_for_user(run_id=run_id, user_id=user_id, is_admin=is_admin)
+        for row in rows:
+            task_id = str(row.get("task_id") or "")
+            if not task_id:
+                continue
+            self._execute(
+                "UPDATE tasks SET status = 'FAILED', updated_at = ? WHERE id = ? AND status = 'PROCESSING'"
+                if self.backend == "sqlite"
+                else
+                "UPDATE tasks SET status = 'FAILED', updated_at = %s WHERE id = %s AND status = 'PROCESSING'",
+                (now, task_id),
+            )
+        return len(rows)
+
+    def has_active_task_run(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Return the active (PENDING/RUNNING) run for a task, if any."""
+        row = self._query_one(
+            "SELECT * FROM task_runs WHERE task_id = ? AND status IN ('PENDING', 'RUNNING') "
+            "ORDER BY created_at DESC LIMIT 1"
+            if self.backend == "sqlite"
+            else
+            "SELECT * FROM task_runs WHERE task_id = %s AND status IN ('PENDING', 'RUNNING') "
+            "ORDER BY created_at DESC LIMIT 1",
+            (task_id,),
+        )
+        return self._normalize_task_run_row(row)
 
     def get_task_run_for_user(self, *, run_id: str, user_id: str, is_admin: bool) -> Optional[Dict[str, Any]]:
         if is_admin:
@@ -1172,6 +1320,227 @@ class AppStore:
             (safe_key, payload_json, updated_by_user_id or None, now),
         )
 
+    # ------------------------------------------------------------------
+    # Error events
+    # ------------------------------------------------------------------
+
+    ERROR_DEDUPE_WINDOW_SECONDS = 300
+    MAX_TRACEBACK_CHARS = 8000
+    MAX_MESSAGE_CHARS = 2000
+
+    @staticmethod
+    def _error_fingerprint(*, source: str, code: str, exception_type: str, message: str) -> str:
+        """Group repeats of the same failure.
+
+        The message is normalised first so ids, paths and numbers inside it do
+        not split one recurring fault into thousands of distinct rows.
+        """
+        normalized = str(message or "")
+        normalized = re.sub(r"\b[0-9a-f]{8,}\b", "<id>", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\d+", "<n>", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()[:400]
+        raw = "|".join([str(source or ""), str(code or ""), str(exception_type or ""), normalized])
+        return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()[:32]
+
+    def record_error_event(
+        self,
+        *,
+        code: str,
+        message: str,
+        source: str = "app",
+        level: str = "ERROR",
+        exception_type: str = "",
+        traceback_text: str = "",
+        request_method: str = "",
+        request_path: str = "",
+        status_code: int = 0,
+        actor_user_id: str = "",
+        task_id: str = "",
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Record one error occurrence, collapsing repeats within a short window."""
+        now = self._now_ts()
+        safe_message = str(message or "")[: self.MAX_MESSAGE_CHARS]
+        safe_traceback = str(traceback_text or "")[: self.MAX_TRACEBACK_CHARS]
+        fingerprint = self._error_fingerprint(
+            source=source, code=code, exception_type=exception_type, message=safe_message
+        )
+        placeholder = "?" if self.backend == "sqlite" else "%s"
+
+        existing = self._query_one(
+            f"SELECT id, occurrence_count FROM error_events "
+            f"WHERE fingerprint = {placeholder} AND last_seen_at >= {placeholder} "
+            f"ORDER BY last_seen_at DESC LIMIT 1",
+            (fingerprint, now - self.ERROR_DEDUPE_WINDOW_SECONDS),
+        )
+        if existing:
+            self._execute(
+                f"UPDATE error_events SET occurrence_count = occurrence_count + 1, last_seen_at = {placeholder} "
+                f"WHERE id = {placeholder}",
+                (now, existing["id"]),
+            )
+            return {
+                "id": str(existing["id"]),
+                "fingerprint": fingerprint,
+                "deduplicated": True,
+                "occurrence_count": int(existing.get("occurrence_count") or 0) + 1,
+            }
+
+        event_id = uuid.uuid4().hex
+        columns = (
+            "id, fingerprint, level, source, code, message, exception_type, traceback, "
+            "request_method, request_path, status_code, actor_user_id, task_id, context_json, "
+            "occurrence_count, created_at, last_seen_at"
+        )
+        marks = ", ".join([placeholder] * 17)
+        self._execute(
+            f"INSERT INTO error_events ({columns}) VALUES ({marks})",
+            (
+                event_id,
+                fingerprint,
+                str(level or "ERROR").upper()[:16],
+                str(source or "app")[:120],
+                str(code or "UNKNOWN")[:120],
+                safe_message,
+                str(exception_type or "")[:120],
+                safe_traceback,
+                str(request_method or "")[:12],
+                str(request_path or "")[:512],
+                int(status_code or 0),
+                str(actor_user_id or "") or None,
+                str(task_id or "") or None,
+                self._safe_json_dump(context or {}),
+                1,
+                now,
+                now,
+            ),
+        )
+        return {"id": event_id, "fingerprint": fingerprint, "deduplicated": False, "occurrence_count": 1}
+
+    def _normalize_error_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if row is None:
+            return None
+        item = dict(row)
+        item["context"] = self._safe_json_load(item.pop("context_json", None))
+        item["occurrence_count"] = int(item.get("occurrence_count") or 1)
+        item["status_code"] = int(item.get("status_code") or 0)
+        for key in ("actor_user_id", "task_id", "exception_type", "request_method", "request_path", "traceback"):
+            item[key] = str(item.get(key) or "")
+        return item
+
+    def list_error_events(
+        self,
+        *,
+        limit: int = 100,
+        level: str = "",
+        code: str = "",
+        source: str = "",
+        task_id: str = "",
+        actor_user_id: str = "",
+        since_ts: int = 0,
+        include_traceback: bool = False,
+    ) -> List[Dict[str, Any]]:
+        safe_limit = max(1, min(500, int(limit or 100)))
+        placeholder = "?" if self.backend == "sqlite" else "%s"
+        clauses = ["1=1"]
+        params: List[Any] = []
+
+        def push(clause_sql: str, value: Any):
+            clauses.append(clause_sql)
+            params.append(value)
+
+        if level:
+            push(f"ee.level = {placeholder}", str(level).upper())
+        if code:
+            push(f"ee.code = {placeholder}", str(code))
+        if source:
+            push(f"ee.source = {placeholder}", str(source))
+        if task_id:
+            push(f"ee.task_id = {placeholder}", str(task_id))
+        if actor_user_id:
+            push(f"ee.actor_user_id = {placeholder}", str(actor_user_id))
+        if since_ts:
+            push(f"ee.last_seen_at >= {placeholder}", int(since_ts))
+
+        params.append(safe_limit)
+        sql = (
+            "SELECT ee.*, actor.email AS actor_email FROM error_events ee "
+            "LEFT JOIN users actor ON actor.id = ee.actor_user_id "
+            f"WHERE {' AND '.join(clauses)} "
+            f"ORDER BY ee.last_seen_at DESC LIMIT {placeholder}"
+        )
+        rows = [self._normalize_error_row(row) for row in self._query_all(sql, tuple(params))]
+        if not include_traceback:
+            for row in rows:
+                row.pop("traceback", None)
+        return [row for row in rows if row]
+
+    def get_error_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        placeholder = "?" if self.backend == "sqlite" else "%s"
+        row = self._query_one(
+            "SELECT ee.*, actor.email AS actor_email FROM error_events ee "
+            "LEFT JOIN users actor ON actor.id = ee.actor_user_id "
+            f"WHERE ee.id = {placeholder}",
+            (str(event_id or ""),),
+        )
+        return self._normalize_error_row(row)
+
+    def summarize_error_events(self, *, since_ts: int = 0, limit: int = 10) -> Dict[str, Any]:
+        """Aggregate counts for the admin health view."""
+        placeholder = "?" if self.backend == "sqlite" else "%s"
+        where = f"WHERE last_seen_at >= {placeholder}" if since_ts else ""
+        params: Tuple[Any, ...] = (int(since_ts),) if since_ts else ()
+
+        totals = self._query_one(
+            "SELECT COALESCE(SUM(occurrence_count), 0) AS total_occurrences, "
+            "COUNT(*) AS distinct_faults, "
+            "COALESCE(MAX(last_seen_at), 0) AS latest_at "
+            f"FROM error_events {where}",
+            params,
+        ) or {}
+
+        by_level = self._query_all(
+            f"SELECT level, COALESCE(SUM(occurrence_count), 0) AS occurrences FROM error_events {where} GROUP BY level",
+            params,
+        )
+        safe_limit = max(1, min(50, int(limit or 10)))
+        top_params = params + (safe_limit,)
+        top_codes = self._query_all(
+            "SELECT code, source, COALESCE(SUM(occurrence_count), 0) AS occurrences, MAX(last_seen_at) AS last_seen_at "
+            f"FROM error_events {where} GROUP BY code, source ORDER BY occurrences DESC LIMIT {placeholder}",
+            top_params,
+        )
+        return {
+            "total_occurrences": int(totals.get("total_occurrences") or 0),
+            "distinct_faults": int(totals.get("distinct_faults") or 0),
+            "latest_at": int(totals.get("latest_at") or 0),
+            "by_level": {str(row.get("level") or "ERROR"): int(row.get("occurrences") or 0) for row in by_level},
+            "top_codes": [
+                {
+                    "code": str(row.get("code") or ""),
+                    "source": str(row.get("source") or ""),
+                    "occurrences": int(row.get("occurrences") or 0),
+                    "last_seen_at": int(row.get("last_seen_at") or 0),
+                }
+                for row in top_codes
+            ],
+        }
+
+    def purge_error_events(self, *, before_ts: int = 0) -> int:
+        """Delete error rows older than a cutoff, or all rows when none is given."""
+        placeholder = "?" if self.backend == "sqlite" else "%s"
+        if before_ts:
+            row = self._query_one(
+                f"SELECT COUNT(*) AS n FROM error_events WHERE last_seen_at < {placeholder}", (int(before_ts),)
+            )
+            removed = int((row or {}).get("n") or 0)
+            self._execute(f"DELETE FROM error_events WHERE last_seen_at < {placeholder}", (int(before_ts),))
+            return removed
+        row = self._query_one("SELECT COUNT(*) AS n FROM error_events")
+        removed = int((row or {}).get("n") or 0)
+        self._execute("DELETE FROM error_events")
+        return removed
+
     def _normalize_journal_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if row is None:
             return None
@@ -1342,10 +1711,24 @@ class AppStore:
         item = dict(row)
         item["options"] = self._safe_json_load(item.get("options_json"))
         item["result"] = self._safe_json_load(item.get("result_json"))
+        try:
+            item["progress_percent"] = float(item.get("progress_percent") or 0.0)
+        except Exception:
+            item["progress_percent"] = 0.0
+        item["stage"] = str(item.get("stage") or "")
+        try:
+            item["tokens_consumed"] = int(item.get("tokens_consumed") or 0)
+        except Exception:
+            item["tokens_consumed"] = 0
+        try:
+            item["estimated_seconds_remaining"] = int(item.get("estimated_seconds_remaining") or 0)
+        except Exception:
+            item["estimated_seconds_remaining"] = 0
         return item
 
     def clear_all_for_tests(self):
         """Utility for tests to reset database content."""
+        self._execute("DELETE FROM error_events")
         self._execute("DELETE FROM task_runs")
         self._execute("DELETE FROM journals")
         self._execute("DELETE FROM task_files")

@@ -1,10 +1,13 @@
 FROM python:3.12-slim
 
+# Multiple workers are safe: run state and progress live in the task_runs table,
+# and the in-process job queue is only a same-worker fast path.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8000 \
     GUNICORN_WORKERS=2 \
+    EXPORT_EAGER_MODES=clean \
     GUNICORN_THREADS=8 \
     GUNICORN_TIMEOUT=600
 

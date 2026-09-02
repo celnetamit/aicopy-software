@@ -75,7 +75,11 @@ def register_assistant_routes(app, deps):
                     options = raw_options
                     if not isinstance(options, dict):
                         options = {}
-                    options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+                    options = deps.apply_global_runtime_settings(
+            options,
+            deps.read_global_runtime_settings(),
+            is_admin=context.role == deps.role_admin,
+        )
                     # Assistant action must honor caller-provided AI overrides for safe execution.
                     if isinstance(raw_options, dict):
                         ai_in = raw_options.get("ai", {})

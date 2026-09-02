@@ -104,31 +104,38 @@ def register_task_routes(app, deps):
 
         reports = task.get("reports") or {}
 
-        clean_file = deps.store.get_task_file_for_user(
-            task_id=task_id,
-            file_type="clean",
-            user_id=context.user_id,
-            is_admin=context.role == deps.role_admin,
-        )
-        highlighted_file = deps.store.get_task_file_for_user(
-            task_id=task_id,
-            file_type="highlighted",
-            user_id=context.user_id,
-            is_admin=context.role == deps.role_admin,
-        )
+        summary = deps.task_summary(task)
+        # Non-eager variants are generated on first download, so availability is a
+        # function of task state rather than of what happens to be cached now.
+        clean_available = bool(summary.get("can_download_clean"))
+        highlighted_available = bool(summary.get("can_download_highlighted"))
+        if not clean_available:
+            clean_available = deps.store.get_task_file_for_user(
+                task_id=task_id,
+                file_type="clean",
+                user_id=context.user_id,
+                is_admin=context.role == deps.role_admin,
+            ) is not None
+        if not highlighted_available:
+            highlighted_available = deps.store.get_task_file_for_user(
+                task_id=task_id,
+                file_type="highlighted",
+                user_id=context.user_id,
+                is_admin=context.role == deps.role_admin,
+            ) is not None
 
         payload = {
             "success": True,
             "task": {
-                **deps.task_summary(task),
+                **summary,
                 "original_text": str(task.get("original_text") or ""),
                 "corrected_text": str(task.get("corrected_text") or ""),
                 "full_corrected_text": str(task.get("full_corrected_text") or ""),
                 "options": task.get("options") or {},
                 "reports": reports,
                 "downloads": {
-                    "clean": clean_file is not None,
-                    "highlighted": highlighted_file is not None,
+                    "clean": clean_available,
+                    "highlighted": highlighted_available,
                 },
             },
         }
@@ -142,13 +149,30 @@ def register_task_routes(app, deps):
         options = payload.get("options", {})
         if not isinstance(options, dict):
             options = {}
-        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+        options = deps.apply_global_runtime_settings(
+            options,
+            deps.read_global_runtime_settings(),
+            is_admin=context.role == deps.role_admin,
+        )
 
         task, error = deps.get_owned_task_or_error(context, task_id)
         if error is not None:
             return error
 
         if bool(payload.get("async", False) or payload.get("background", False)):
+            if not bool(payload.get("force", False)):
+                active_run = deps.store.has_active_task_run(task_id)
+                if active_run is not None:
+                    return deps.json_response(
+                        deps.error_payload(
+                            "TASK_ALREADY_PROCESSING",
+                            "This task already has a run in progress. Wait for it to finish, or resend with force=true.",
+                            task_run=active_run,
+                        ),
+                        status=409,
+                        session_id=context.session_id,
+                    )
+
             deps.increment_runtime_counter(context.session_id, "process_async_started")
             deps.store.update_task_status(
                 task_id=task_id,
@@ -156,11 +180,15 @@ def register_task_routes(app, deps):
                 user_id=context.user_id,
                 is_admin=context.role == deps.role_admin,
             )
+            # Allocate the job id up front so it is durable at INSERT time and the
+            # request thread never writes back to the row after the worker starts.
+            job_id = deps.processing_job_queue.new_job_id()
             task_run = deps.store.create_task_run(
                 task_id=task_id,
                 user_id=str(task.get("user_id") or context.user_id),
                 status="PENDING",
                 options=options,
+                job_id=job_id,
             )
             task_run_id = str(task_run.get("id") or "")
             deps.increment_runtime_counter(context.session_id, "task_run_pending")
@@ -194,13 +222,13 @@ def register_task_routes(app, deps):
                     metadata={"task_id": task_id, "status": "RUNNING", "queue_seconds": queue_seconds},
                 )
                 try:
-                    result = deps.process_task(context, task, options)
+                    result = deps.process_task(context, task, options, task_run_id=task_run_id)
                     completed_run = deps.store.update_task_run(
                         run_id=task_run_id,
                         user_id=str(task.get("user_id") or context.user_id),
                         is_admin=context.role == deps.role_admin,
                         status="SUCCEEDED",
-                        result=result,
+                        result=deps.summarize_run_result(result),
                     )
                     deps.increment_runtime_counter(context.session_id, "task_run_succeeded")
                     deps.increment_runtime_counter(context.session_id, "process_async_succeeded")
@@ -268,12 +296,7 @@ def register_task_routes(app, deps):
                 task_id=task_id,
                 owner_user_id=str(task.get("user_id") or context.user_id),
                 callback=run_processing_job,
-            )
-            deps.store.update_task_run(
-                run_id=task_run_id,
-                user_id=str(task.get("user_id") or context.user_id),
-                is_admin=context.role == deps.role_admin,
-                job_id=str(job.get("id") or ""),
+                job_id=job_id,
             )
             deps.record_audit(
                 event_type="task_process_queued",
@@ -336,6 +359,27 @@ def register_task_routes(app, deps):
             user_id=context.user_id,
             is_admin=context.role == deps.role_admin,
         )
+        # The in-memory job only exists on the worker that ran it. task_runs is
+        # authoritative, so synthesize a job-shaped view from it when the local
+        # queue has nothing — otherwise progress vanishes on every other worker.
+        if job is None and isinstance(task_run, dict) and task_run:
+            job = {
+                "id": str(task_run.get("job_id") or ""),
+                "task_id": task_id,
+                "status": str(task_run.get("status") or ""),
+                "created_at": int(task_run.get("created_at") or 0),
+                "started_at": int(task_run.get("started_at") or 0),
+                "finished_at": int(task_run.get("finished_at") or 0),
+                "error": str(task_run.get("error") or ""),
+                "result": None,
+                "progress_percent": float(task_run.get("progress_percent") or 0.0),
+                "stage": str(task_run.get("stage") or ""),
+                "tokens_consumed": int(task_run.get("tokens_consumed") or 0),
+                "estimated_seconds_remaining": int(task_run.get("estimated_seconds_remaining") or 0),
+                "from_store": True,
+            }
+
+        summary = deps.task_summary(task)
         return deps.json_response(
             {
                 "success": True,
@@ -343,7 +387,10 @@ def register_task_routes(app, deps):
                 "status": str(task.get("status") or ""),
                 "job": job,
                 "task_run": task_run,
-                "task": deps.task_summary(task),
+                "task_summary": summary,
+                # Deprecated alias: this has never carried task text or reports.
+                # Clients must re-fetch GET /api/tasks/<id> for full content.
+                "task": summary,
             },
             session_id=context.session_id,
         )
@@ -399,9 +446,10 @@ def register_task_routes(app, deps):
 
         updated = deps.store.update_task_corrected_text(
             task_id=str(task.get("id") or task_id),
-            user_id=context.user_id,
+            user_id=str(task.get("user_id") or context.user_id),
             corrected_text=str(task.get("corrected_text") or ""),
             reports=next_reports,
+            is_admin=context.role == deps.role_admin,
         )
         if updated is None:
             return deps.json_response(
@@ -499,11 +547,28 @@ def register_task_routes(app, deps):
         options = payload.get("options", {})
         if not isinstance(options, dict):
             options = {}
-        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+        options = deps.apply_global_runtime_settings(
+            options,
+            deps.read_global_runtime_settings(),
+            is_admin=context.role == deps.role_admin,
+        )
 
         task, error = deps.get_owned_task_or_error(context, task_id)
         if error is not None:
             return error
+
+        if not bool(payload.get("force", False)):
+            active_run = deps.store.has_active_task_run(task_id)
+            if active_run is not None:
+                return deps.json_response(
+                    deps.error_payload(
+                        "TASK_ALREADY_PROCESSING",
+                        "This task already has a run in progress. Wait for it to finish, or resend with force=true.",
+                        task_run=active_run,
+                    ),
+                    status=409,
+                    session_id=context.session_id,
+                )
 
         deps.increment_runtime_counter(context.session_id, "heal_bibliography_requests")
 
@@ -513,11 +578,13 @@ def register_task_routes(app, deps):
             user_id=context.user_id,
             is_admin=context.role == deps.role_admin,
         )
+        job_id = deps.processing_job_queue.new_job_id()
         task_run = deps.store.create_task_run(
             task_id=task_id,
             user_id=str(task.get("user_id") or context.user_id),
             status="PENDING",
             options=options,
+            job_id=job_id,
         )
         task_run_id = str(task_run.get("id") or "")
         deps.record_audit(
@@ -536,13 +603,13 @@ def register_task_routes(app, deps):
                 status="RUNNING",
             )
             try:
-                result = deps.heal_bibliography_task(context, task, options)
+                result = deps.heal_bibliography_task(context, task, options, task_run_id=task_run_id)
                 deps.store.update_task_run(
                     run_id=task_run_id,
                     user_id=str(task.get("user_id") or context.user_id),
                     is_admin=context.role == deps.role_admin,
                     status="SUCCEEDED",
-                    result=result,
+                    result=deps.summarize_run_result(result),
                 )
                 deps.increment_runtime_counter(context.session_id, "heal_bibliography_succeeded")
                 deps.record_audit(
@@ -581,12 +648,7 @@ def register_task_routes(app, deps):
             task_id=task_id,
             owner_user_id=str(task.get("user_id") or context.user_id),
             callback=run_healing_job,
-        )
-        deps.store.update_task_run(
-            run_id=task_run_id,
-            user_id=str(task.get("user_id") or context.user_id),
-            is_admin=context.role == deps.role_admin,
-            job_id=str(job.get("id") or ""),
+            job_id=job_id,
         )
 
         return deps.json_response(
@@ -614,11 +676,28 @@ def register_task_routes(app, deps):
         options = payload.get("options", {})
         if not isinstance(options, dict):
             options = {}
-        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+        options = deps.apply_global_runtime_settings(
+            options,
+            deps.read_global_runtime_settings(),
+            is_admin=context.role == deps.role_admin,
+        )
 
         task, error = deps.get_owned_task_or_error(context, task_id)
         if error is not None:
             return error
+
+        if not bool(payload.get("force", False)):
+            active_run = deps.store.has_active_task_run(task_id)
+            if active_run is not None:
+                return deps.json_response(
+                    deps.error_payload(
+                        "TASK_ALREADY_PROCESSING",
+                        "This task already has a run in progress. Wait for it to finish, or resend with force=true.",
+                        task_run=active_run,
+                    ),
+                    status=409,
+                    session_id=context.session_id,
+                )
 
         deps.increment_runtime_counter(context.session_id, "autopilot_requests")
         deps.store.update_task_status(
@@ -627,11 +706,13 @@ def register_task_routes(app, deps):
             user_id=context.user_id,
             is_admin=context.role == deps.role_admin,
         )
+        job_id = deps.processing_job_queue.new_job_id()
         task_run = deps.store.create_task_run(
             task_id=task_id,
             user_id=str(task.get("user_id") or context.user_id),
             status="PENDING",
             options=options,
+            job_id=job_id,
         )
         task_run_id = str(task_run.get("id") or "")
         deps.record_audit(
@@ -655,13 +736,13 @@ def register_task_routes(app, deps):
             while attempt < max_attempts:
                 attempt += 1
                 try:
-                    result = deps.autopilot_task(context, task, options)
+                    result = deps.autopilot_task(context, task, options, task_run_id=task_run_id)
                     deps.store.update_task_run(
                         run_id=task_run_id,
                         user_id=str(task.get("user_id") or context.user_id),
                         is_admin=context.role == deps.role_admin,
                         status="SUCCEEDED",
-                        result=result,
+                        result=deps.summarize_run_result(result),
                     )
                     deps.increment_runtime_counter(context.session_id, "autopilot_succeeded")
                     deps.record_audit(
@@ -714,12 +795,7 @@ def register_task_routes(app, deps):
             task_id=task_id,
             owner_user_id=str(task.get("user_id") or context.user_id),
             callback=run_autopilot_job,
-        )
-        deps.store.update_task_run(
-            run_id=task_run_id,
-            user_id=str(task.get("user_id") or context.user_id),
-            is_admin=context.role == deps.role_admin,
-            job_id=str(job.get("id") or ""),
+            job_id=job_id,
         )
 
         return deps.json_response(

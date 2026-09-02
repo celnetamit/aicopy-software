@@ -257,6 +257,41 @@ function startServerTaskTracking(taskId, message) {
     pollTaskUntilProcessed(safeTaskId);
 }
 
+function completeTrackedProcessingFromServer(taskId, status) {
+    const isReviewRequired = String(status || '').toUpperCase() === 'REVIEW_REQUIRED';
+
+    function finish(loaded) {
+        mainState.isProcessingDocument = false;
+        if (loaded) {
+            switch_tab('corrected');
+            if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
+            if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
+        }
+        stopProcessingPresence();
+        if (!loaded) {
+            setStatus('Processing finished, but the result could not be loaded. Reopen the task from history.', 'warning');
+        } else if (isReviewRequired) {
+            setStatus('Autopilot completed: review required before acceptance', 'warning');
+            showAssistantToast('Autopilot completed with review-required gate.');
+        } else {
+            setStatus('Processing complete', 'success');
+            showAssistantToast('Processing completed in background.');
+        }
+        setProgress(100);
+        mainAuth.refreshTaskHistory();
+        refreshProcessButtonState();
+    }
+
+    const called = mainAuth.fetchFullTask(
+        taskId,
+        function () { finish(true); },
+        function () { finish(false); }
+    );
+    if (!called) {
+        finish(false);
+    }
+}
+
 function completeTrackedProcessingFromPayload(response, statusMessage) {
     clearServerTaskTracking();
     mainState.isProcessingDocument = false;
@@ -569,7 +604,7 @@ function pollTaskUntilProcessed(taskId) {
         if (shouldRefreshHistory) {
             mainAuth.refreshTaskHistory();
         }
-        if (!response || !response.success || !response.task) {
+        if (!response || !response.success || !(response.task_summary || response.task)) {
             if (elapsedMs >= mainConstants.TASK_RECOVERY_HARD_TIMEOUT_MS) {
                 clearServerTaskTracking();
                 mainState.isProcessingDocument = false;
@@ -582,7 +617,7 @@ function pollTaskUntilProcessed(taskId) {
             scheduleTaskRecoveryPoll(safeTaskId);
             return;
         }
-        const task = response.task;
+        const task = response.task_summary || response.task;
         const job = response.job && typeof response.job === 'object' ? response.job : null;
         
         if (job) {
@@ -635,22 +670,10 @@ function pollTaskUntilProcessed(taskId) {
         }
         const status = String(task.status || '').toUpperCase();
         if (status === 'PROCESSED' || status === 'REVIEW_REQUIRED') {
+            // /process-status only returns a task summary. Hydrating from it would
+            // blank the document and every report, so fetch the full task first.
             clearServerTaskTracking();
-            mainState.isProcessingDocument = false;
-            mainAuth.applyTaskDetailsToState(task);
-            switch_tab('corrected');
-            if (mainDom.saveCleanBtn) mainDom.saveCleanBtn.disabled = false;
-            if (mainDom.saveHighlightBtn) mainDom.saveHighlightBtn.disabled = false;
-            stopProcessingPresence();
-            if (status === 'REVIEW_REQUIRED') {
-                setStatus('Autopilot completed: review required before acceptance', 'warning');
-                showAssistantToast('Autopilot completed with review-required gate.');
-            } else {
-                setStatus('Processing complete (recovered after transient server response issue)', 'success');
-                showAssistantToast('Processing completed in background.');
-            }
-            setProgress(100);
-            refreshProcessButtonState();
+            completeTrackedProcessingFromServer(safeTaskId, status);
             return;
         }
         if (status === 'FAILED') {
@@ -664,7 +687,9 @@ function pollTaskUntilProcessed(taskId) {
             refreshProcessButtonState();
             return;
         }
-        mainAuth.applyTaskDetailsToState(task);
+        // Deliberately not applyTaskDetailsToState(task): the poll payload is a
+        // summary, and applying it mid-run would clear the loaded document.
+        mainAuth.applyTaskSummaryToState(task);
         if (elapsedMs >= mainConstants.TASK_RECOVERY_HARD_TIMEOUT_MS) {
             clearServerTaskTracking();
             mainState.isProcessingDocument = false;
@@ -948,6 +973,16 @@ function save_file(file_type) {
             alert('Download failed\nCode: SAVE_UNAVAILABLE\nMessage: Save bridge unavailable');
         }
     }
+    function buildDownloadFileName(fileType) {
+        const base = String(mainState.fileContent.fileName || 'manuscript').replace(/\.[^.]+$/, '') || 'manuscript';
+        const suffix = {
+            clean: 'clean',
+            highlighted: 'highlighted',
+            highlighted_comments: 'highlighted_comments',
+            track_changes: 'track_changes'
+        }[String(fileType || 'clean')] || 'clean';
+        return `${base}_${suffix}.docx`;
+    }
     function downloadBase64Docx(base64Data, fileName, mimeType) {
         const binary = atob(String(base64Data || ''));
         const bytes = new Uint8Array(binary.length);
@@ -965,9 +1000,38 @@ function save_file(file_type) {
         }, 60_000);
     }
     if (isBrowserWebMode && taskIdForDirectDownload) {
+        // Stream the binary rather than shipping base64 through JSON. Fetching it
+        // (instead of navigating) keeps a failed download from replacing the app
+        // with a raw error response.
         const query = new URLSearchParams({ type: file_type, _ts: String(Date.now()) });
-        window.location.assign(`/api/tasks/${encodeURIComponent(taskIdForDirectDownload)}/download-file?${query.toString()}`);
-        setStatus(file_type + ' version downloaded', 'success');
+        const streamUrl = `/api/tasks/${encodeURIComponent(taskIdForDirectDownload)}/download-file?${query.toString()}`;
+        setStatus('Preparing download...', 'warning');
+        fetch(streamUrl, { credentials: 'same-origin' })
+            .then((res) => {
+                if (!res.ok) {
+                    return res.json().catch(() => ({})).then((body) => {
+                        throw new Error(String((body && body.error) || `Server returned ${res.status}`));
+                    });
+                }
+                return res.blob();
+            })
+            .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = buildDownloadFileName(file_type);
+                document.body.appendChild(link);
+                link.click();
+                window.setTimeout(() => {
+                    try { document.body.removeChild(link); } catch (err) {}
+                    URL.revokeObjectURL(url);
+                }, 60_000);
+                setStatus(file_type + ' version downloaded', 'success');
+            })
+            .catch((err) => {
+                setStatus('Download failed', 'error');
+                alert('Download failed\n' + String((err && err.message) || err));
+            });
         return;
     }
     setStatus('Preparing download...', 'warning');

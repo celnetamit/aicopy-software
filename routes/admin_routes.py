@@ -142,13 +142,98 @@ def register_admin_routes(app, deps):
         deps.record_audit(event_type="admin_audit_viewed", actor_user_id=context.user_id)
         return deps.json_response({"success": True, "events": events}, session_id=context.session_id)
 
+    @app.get("/api/admin/error-events")
+    @deps.require_admin
+    def api_admin_error_events():
+        """Recent application errors, most recently seen first."""
+        context = deps.auth_context_from_request()
+
+        def query_int(name, default_value, min_value, max_value):
+            try:
+                parsed = int(str(request.query.get(name, str(default_value)) or default_value))
+            except Exception:
+                parsed = default_value
+            return max(min_value, min(max_value, parsed))
+
+        limit = query_int("limit", 100, 1, 500)
+        since_hours = query_int("since_hours", 0, 0, 24 * 365)
+        since_ts = int(time.time()) - since_hours * 3600 if since_hours else 0
+
+        events = deps.store.list_error_events(
+            limit=limit,
+            level=str(request.query.get("level", "") or "").strip(),
+            code=str(request.query.get("code", "") or "").strip(),
+            source=str(request.query.get("source", "") or "").strip(),
+            task_id=str(request.query.get("task_id", "") or "").strip(),
+            actor_user_id=str(request.query.get("actor_user_id", "") or "").strip(),
+            since_ts=since_ts,
+        )
+        summary = deps.store.summarize_error_events(since_ts=since_ts)
+
+        deps.record_audit(event_type="admin_error_events_viewed", actor_user_id=context.user_id)
+        return deps.json_response(
+            {
+                "success": True,
+                "events": events,
+                "summary": summary,
+                "retention_days": deps.error_log_retention_days,
+                "log_file": deps.error_log_path,
+            },
+            session_id=context.session_id,
+        )
+
+    @app.get("/api/admin/error-events/<event_id>")
+    @deps.require_admin
+    def api_admin_error_event_detail(event_id: str):
+        """One error with its full traceback."""
+        context = deps.auth_context_from_request()
+        event = deps.store.get_error_event(str(event_id or "").strip())
+        if event is None:
+            return deps.json_response(
+                deps.error_payload("ERROR_EVENT_NOT_FOUND", "Error event not found"),
+                status=404,
+                session_id=context.session_id,
+            )
+        return deps.json_response({"success": True, "event": event}, session_id=context.session_id)
+
+    @app.post("/api/admin/error-events/purge")
+    @deps.require_admin
+    def api_admin_purge_error_events():
+        """Clear the stored error log, or everything older than a cutoff."""
+        context = deps.auth_context_from_request()
+        payload = deps.read_json_payload()
+        try:
+            older_than_days = int(payload.get("older_than_days", 0) or 0)
+        except Exception:
+            older_than_days = 0
+        before_ts = int(time.time()) - older_than_days * 24 * 3600 if older_than_days > 0 else 0
+
+        removed = deps.store.purge_error_events(before_ts=before_ts)
+        deps.record_audit(
+            event_type="admin_error_events_purged",
+            actor_user_id=context.user_id,
+            metadata={"removed": removed, "older_than_days": older_than_days},
+        )
+        return deps.json_response(
+            {"success": True, "removed": removed, "older_than_days": older_than_days},
+            session_id=context.session_id,
+        )
+
     @app.get("/api/admin/global-settings")
     @deps.require_admin
     def api_admin_get_global_settings():
         context = deps.auth_context_from_request()
         settings = deps.read_global_runtime_settings()
         deps.record_audit(event_type="admin_global_settings_viewed", actor_user_id=context.user_id)
-        return deps.json_response({"success": True, "settings": settings}, session_id=context.session_id)
+        return deps.json_response(
+            {
+                "success": True,
+                "settings": settings,
+                # Where each provider credential came from, without the value.
+                "provider_key_sources": deps.provider_key_sources(),
+            },
+            session_id=context.session_id,
+        )
 
     @app.post("/api/admin/global-settings")
     @deps.require_admin
@@ -158,7 +243,20 @@ def register_admin_routes(app, deps):
         incoming = payload.get("settings", payload)
         if not isinstance(incoming, dict):
             incoming = {}
-        normalized = deps.normalize_global_runtime_settings(incoming)
+        # Merge onto the stored settings instead of replacing them. A client that
+        # renders only part of the admin form (the task-detail shell omits the
+        # Ollama transport block) would otherwise reset every control it cannot
+        # see back to its default.
+        current = deps.read_global_runtime_settings()
+        merged = {}
+        for section in ("editing", "ai"):
+            base = current.get(section) if isinstance(current.get(section), dict) else {}
+            patch = incoming.get(section) if isinstance(incoming.get(section), dict) else {}
+            merged[section] = {**base, **patch}
+        for key, value in incoming.items():
+            if key not in ("editing", "ai"):
+                merged[key] = value
+        normalized = deps.normalize_global_runtime_settings(merged)
         deps.store.upsert_app_setting(
             key=deps.app_setting_key_global_runtime,
             value=normalized,

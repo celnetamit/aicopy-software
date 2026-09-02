@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import math
 import json
 import os
@@ -18,14 +19,21 @@ import uuid
 import zipfile
 import xml.etree.ElementTree as ET
 import requests
+from logging.handlers import RotatingFileHandler
 from functools import wraps
 from types import SimpleNamespace
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 
 from bottle import Bottle, HTTPResponse, request, response, run, static_file
 
 from app_store import AppStore, ROLE_ADMIN, STATUS_ACTIVE, STATUS_INACTIVE, SessionContext
-from document_processor import DocumentProcessor
+from document_processor import (
+    AI_TEMPERATURE_DEFAULT,
+    AI_TEMPERATURE_MAX,
+    AI_TEMPERATURE_MIN,
+    DocumentProcessor,
+)
 from job_queue import BackgroundJobQueue
 from journal_recommender import recommend_top_journals
 from version_info import APP_VERSION, WEB_ASSET_VERSION
@@ -101,6 +109,12 @@ def _boot_env_int(key: str, default_value: int, min_value: int, max_value: int) 
 
 
 PROCESSING_JOB_WORKERS = _boot_env_int("PROCESSING_JOB_WORKERS", 2, 1, 32)
+EXPORT_MODES_ALL = ("clean", "highlighted", "highlighted_comments", "track_changes")
+_EXPORT_EAGER_RAW = str(os.getenv("EXPORT_EAGER_MODES", "clean") or "clean").strip().lower()
+if _EXPORT_EAGER_RAW in ("all", "*"):
+    EXPORT_EAGER_MODES = list(EXPORT_MODES_ALL)
+else:
+    EXPORT_EAGER_MODES = [m for m in (p.strip() for p in _EXPORT_EAGER_RAW.split(",")) if m in EXPORT_MODES_ALL] or ["clean"]
 MAX_UPLOAD_BYTES = _boot_env_int("MAX_UPLOAD_BYTES", 10 * 1024 * 1024, 1024 * 100, 1024 * 1024 * 100)
 MAX_TEXT_CHARS = _boot_env_int("MAX_TEXT_CHARS", 500000, 1000, 5_000_000)
 TASK_LIST_LIMIT_MAX = _boot_env_int("TASK_LIST_LIMIT_MAX", 200, 10, 1000)
@@ -139,6 +153,13 @@ ALLOWED_EMAIL_DOMAINS = sorted(set(_parse_csv_env("ALLOWED_EMAIL_DOMAINS", DEFAU
 ADMIN_EMAILS = sorted(set(_parse_csv_env("ADMIN_EMAILS", DEFAULT_ADMIN_EMAILS)))
 SESSION_TTL_HOURS = _env_int("SESSION_TTL_HOURS", 12, 1, 168)
 FILE_RETENTION_DAYS = _env_int("FILE_RETENTION_DAYS", 30, 1, 3650)
+ERROR_LOG_RETENTION_DAYS = _env_int("ERROR_LOG_RETENTION_DAYS", 14, 1, 365)
+ERROR_LOG_FILE_ENABLED = str(os.getenv("ERROR_LOG_FILE_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
+ERROR_LOG_MAX_BYTES = _env_int("ERROR_LOG_MAX_BYTES", 5 * 1024 * 1024, 64 * 1024, 200 * 1024 * 1024)
+ERROR_LOG_BACKUP_COUNT = _env_int("ERROR_LOG_BACKUP_COUNT", 3, 0, 20)
+CLIENT_ERROR_REPORTING_ENABLED = str(os.getenv("CLIENT_ERROR_REPORTING_ENABLED", "1") or "1").strip().lower() not in ("0", "false", "no", "off")
+CLIENT_ERROR_RATE_LIMIT_COUNT = _env_int("CLIENT_ERROR_RATE_LIMIT_COUNT", 30, 1, 1000)
+CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS = _env_int("CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS", 300, 1, 3600)
 DATA_DIR = os.path.abspath(str(os.getenv("DATA_DIR", os.path.join(ROOT_DIR, "data")) or os.path.join(ROOT_DIR, "data")))
 DATABASE_URL = str(os.getenv("DATABASE_URL", "") or "").strip()
 ENABLE_DEV_TEST_TOKENS = str(os.getenv("MANUSCRIPT_EDITOR_DEV_TEST_TOKENS", "0") or "0").strip() in (
@@ -440,6 +461,215 @@ def _record_audit(
         pass
 
 
+_ERROR_LOGGER: Optional[logging.Logger] = None
+_ERROR_LOGGER_LOCK = threading.Lock()
+_ERROR_LOG_PATH = os.path.join(DATA_DIR, "logs", "errors.log")
+
+
+def _get_error_logger() -> Optional[logging.Logger]:
+    """Lazily build the rotating file logger for errors.
+
+    Kept separate from the database record so a failing or read-only disk never
+    costs us the in-app log, and vice versa.
+    """
+    global _ERROR_LOGGER
+    if not ERROR_LOG_FILE_ENABLED:
+        return None
+    if _ERROR_LOGGER is not None:
+        return _ERROR_LOGGER
+    with _ERROR_LOGGER_LOCK:
+        if _ERROR_LOGGER is not None:
+            return _ERROR_LOGGER
+        try:
+            os.makedirs(os.path.dirname(_ERROR_LOG_PATH), exist_ok=True)
+            logger = logging.getLogger("manuscript_editor.errors")
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+            if not logger.handlers:
+                handler = RotatingFileHandler(
+                    _ERROR_LOG_PATH,
+                    maxBytes=ERROR_LOG_MAX_BYTES,
+                    backupCount=ERROR_LOG_BACKUP_COUNT,
+                    encoding="utf-8",
+                )
+                handler.setFormatter(logging.Formatter("%(message)s"))
+                logger.addHandler(handler)
+            _ERROR_LOGGER = logger
+        except Exception as exc:  # pragma: no cover - disk/permission dependent
+            print(f"[ERRORLOG] file logging unavailable: {exc}")
+            return None
+    return _ERROR_LOGGER
+
+
+def _record_error(
+    *,
+    code: str,
+    message: str,
+    source: str = "app",
+    level: str = "ERROR",
+    exc: Optional[BaseException] = None,
+    include_traceback: bool = True,
+    request_method: str = "",
+    request_path: str = "",
+    status_code: int = 0,
+    actor_user_id: str = "",
+    task_id: str = "",
+    context: Optional[Dict] = None,
+) -> Dict:
+    """Record one application error to the database, the file log and telemetry.
+
+    Never raises: error capture must not be able to break the flow that failed.
+    """
+    exception_type = type(exc).__name__ if exc is not None else ""
+    traceback_text = ""
+    if exc is not None and include_traceback:
+        try:
+            traceback_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        except Exception:
+            traceback_text = ""
+
+    if not request_method or not request_path:
+        try:
+            request_method = request_method or str(request.method or "")
+            request_path = request_path or str(request.path or "")
+        except Exception:
+            pass
+
+    safe_context = {}
+    if isinstance(context, dict):
+        try:
+            safe_context = _json_safe(context)
+        except Exception:
+            safe_context = {}
+
+    result: Dict = {"recorded": False}
+    try:
+        result = _STORE.record_error_event(
+            code=code,
+            message=message,
+            source=source,
+            level=level,
+            exception_type=exception_type,
+            traceback_text=traceback_text,
+            request_method=request_method,
+            request_path=request_path,
+            status_code=int(status_code or 0),
+            actor_user_id=actor_user_id,
+            task_id=task_id,
+            context=safe_context,
+        )
+        result["recorded"] = True
+    except Exception as store_exc:  # pragma: no cover - defensive
+        print(f"[ERRORLOG] could not persist error {code}: {store_exc}")
+
+    logger = _get_error_logger()
+    if logger is not None:
+        try:
+            logger.info(
+                json.dumps(
+                    {
+                        "ts": int(time.time()),
+                        "level": str(level or "ERROR").upper(),
+                        "source": source,
+                        "code": code,
+                        "message": str(message or "")[:2000],
+                        "exception_type": exception_type,
+                        "request": f"{request_method} {request_path}".strip(),
+                        "status_code": int(status_code or 0),
+                        "actor_user_id": actor_user_id,
+                        "task_id": task_id,
+                        "context": safe_context,
+                        "traceback": traceback_text[:8000],
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    try:
+        _increment_runtime_counter(_get_session_id_from_request(), "errors_recorded", code)
+    except Exception:
+        pass
+    return result
+
+
+class ErrorCapturePlugin:
+    """Bottle plugin that turns every unhandled route failure into a log entry.
+
+    Routes that already build their own 5xx response are captured too, so the
+    error log is a complete record rather than only the crashes nobody caught.
+    """
+
+    name = "error_capture"
+    api = 2
+
+    def apply(self, callback, route):
+        route_name = str(getattr(route, "name", "") or getattr(route, "rule", "") or "route")
+
+        @wraps(callback)
+        def wrapper(*args, **kwargs):
+            try:
+                result = callback(*args, **kwargs)
+            except HTTPResponse:
+                # Bottle uses these for control flow (redirects, static files).
+                raise
+            except Exception as exc:
+                _record_error(
+                    code="UNHANDLED_ROUTE_ERROR",
+                    message=str(exc) or type(exc).__name__,
+                    source=f"route:{route_name}",
+                    exc=exc,
+                    status_code=500,
+                    actor_user_id=_current_actor_user_id(),
+                    context={"route": route_name, "args": _json_safe(kwargs)},
+                )
+                return _json_response(
+                    _error_payload("INTERNAL_ERROR", "An unexpected server error occurred."),
+                    status=500,
+                )
+
+            status_code = int(getattr(result, "status_code", 0) or 0)
+            if status_code >= 500:
+                code, message = _extract_error_from_response(result)
+                _record_error(
+                    code=code or "SERVER_ERROR",
+                    message=message or f"Route returned HTTP {status_code}",
+                    source=f"route:{route_name}",
+                    status_code=status_code,
+                    actor_user_id=_current_actor_user_id(),
+                    context={"route": route_name},
+                )
+            return result
+
+        return wrapper
+
+
+def _current_actor_user_id() -> str:
+    try:
+        context = _auth_context_from_request()
+        return context.user_id if context else ""
+    except Exception:
+        return ""
+
+
+def _extract_error_from_response(result) -> Tuple[str, str]:
+    """Pull the error code/message out of a JSON error response body."""
+    try:
+        body = getattr(result, "body", "")
+        if isinstance(body, bytes):
+            body = body.decode("utf-8", errors="replace")
+        if not isinstance(body, str) or not body.strip().startswith("{"):
+            return "", ""
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            return "", ""
+        return str(payload.get("error_code") or ""), str(payload.get("error") or "")
+    except Exception:
+        return "", ""
+
+
 def _error_payload(code: str, message: str, **extra) -> Dict:
     payload = {"success": False, "error": message, "error_code": code}
     payload.update(extra)
@@ -475,6 +705,7 @@ def _default_global_runtime_settings() -> Dict:
             "enabled": True,
             "provider": "ollama",
             "model": "llama3.1",
+            "temperature": AI_TEMPERATURE_DEFAULT,
             "ollama_host": "http://localhost:11434",
             "gemini_api_key": "",
             "openrouter_api_key": "",
@@ -637,6 +868,7 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
             "openrouter_api_key": str(ai_in.get("openrouter_api_key", defaults["ai"]["openrouter_api_key"]) or "").strip(),
             "agent_router_api_key": str(ai_in.get("agent_router_api_key", defaults["ai"]["agent_router_api_key"]) or "").strip(),
             "ai_first_cmos": _bool(ai_in, "ai_first_cmos", defaults["ai"]["ai_first_cmos"]),
+            "temperature": _float(ai_in, "temperature", defaults["ai"]["temperature"], AI_TEMPERATURE_MIN, AI_TEMPERATURE_MAX),
             "section_wise": _bool(ai_in, "section_wise", defaults["ai"]["section_wise"]),
             "section_threshold_chars": _int(ai_in, "section_threshold_chars", defaults["ai"]["section_threshold_chars"], 4000, 120000),
             "section_threshold_paragraphs": _int(ai_in, "section_threshold_paragraphs", defaults["ai"]["section_threshold_paragraphs"], 20, 1000),
@@ -680,23 +912,136 @@ def _normalize_global_runtime_settings(raw_value) -> Dict:
     }
 
 
+# Options any authenticated caller may set per request: none of them change the
+# network target, the credential used, or an admin-set limit.
+AI_OPTION_KEYS_ANY_CALLER = (
+    "enabled",
+    "ai_first_cmos",
+    "section_wise",
+    "section_concurrency",
+)
+
+# Options that select a provider, endpoint, credential or resource budget.
+AI_OPTION_KEYS_ADMIN_ONLY = (
+    "provider",
+    "model",
+    "temperature",
+    "ollama_host",
+    "api_key",
+    "gemini_api_key",
+    "openrouter_api_key",
+    "agent_router_api_key",
+    "section_threshold_chars",
+    "section_threshold_paragraphs",
+    "section_chunk_chars",
+    "section_chunk_lines",
+    "global_consistency_max_chars",
+    "ollama_generate_timeout_seconds",
+    "ollama_health_timeout_seconds",
+    "ollama_retry_count",
+    "ollama_retry_backoff_seconds",
+    "ollama_fallback_model_retry",
+)
+
+OLLAMA_HOST_ALLOWLIST = _parse_csv_env("OLLAMA_HOST_ALLOWLIST", [])
+
+
+def _is_allowed_ollama_host(host: str) -> bool:
+    """Check an Ollama base URL against the configured allowlist.
+
+    With no allowlist configured any host is accepted (the setting is then purely
+    admin-controlled). Configure OLLAMA_HOST_ALLOWLIST in shared deployments.
+    """
+    candidate = str(host or "").strip()
+    if not candidate:
+        return True
+    if not OLLAMA_HOST_ALLOWLIST:
+        return True
+    try:
+        parsed = urlparse(candidate)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False
+    for allowed in OLLAMA_HOST_ALLOWLIST:
+        entry = str(allowed or "").strip().lower()
+        if not entry:
+            continue
+        if entry.startswith(("http://", "https://")):
+            try:
+                entry = (urlparse(entry).hostname or "").strip().lower()
+            except Exception:
+                continue
+        if hostname == entry:
+            return True
+    return False
+
+
+PROVIDER_KEY_ENV_VARS = {
+    "gemini_api_key": "GEMINI_API_KEY",
+    "openrouter_api_key": "OPENROUTER_API_KEY",
+    "agent_router_api_key": "AGENT_ROUTER_TOKEN",
+}
+
+
+def _apply_env_provider_keys(settings: Dict) -> Dict:
+    """Fill provider credentials from the environment when unset in app settings.
+
+    Environment variables are the primary source for deployments that manage
+    secrets outside the database; a key stored through the admin UI still wins,
+    so existing installs keep working.
+    """
+    ai_settings = settings.get("ai") if isinstance(settings.get("ai"), dict) else {}
+    for settings_key, env_name in PROVIDER_KEY_ENV_VARS.items():
+        if str(ai_settings.get(settings_key) or "").strip():
+            continue
+        env_value = str(os.getenv(env_name, "") or "").strip()
+        if env_value:
+            ai_settings[settings_key] = env_value
+    settings["ai"] = ai_settings
+    return settings
+
+
+def provider_key_sources() -> Dict[str, str]:
+    """Report where each provider key comes from, without revealing the value."""
+    row = _STORE.get_app_setting(APP_SETTING_KEY_GLOBAL_RUNTIME)
+    stored = row.get("value") if row and isinstance(row.get("value"), dict) else {}
+    stored_ai = stored.get("ai") if isinstance(stored.get("ai"), dict) else {}
+    sources = {}
+    for settings_key, env_name in PROVIDER_KEY_ENV_VARS.items():
+        if str(stored_ai.get(settings_key) or "").strip():
+            sources[settings_key] = "app_settings"
+        elif str(os.getenv(env_name, "") or "").strip():
+            sources[settings_key] = "environment"
+        else:
+            sources[settings_key] = "unset"
+    return sources
+
+
 def _read_global_runtime_settings() -> Dict:
     row = _STORE.get_app_setting(APP_SETTING_KEY_GLOBAL_RUNTIME)
     if row and isinstance(row.get("value"), dict):
-        return _normalize_global_runtime_settings(row.get("value"))
-    return _default_global_runtime_settings()
+        return _apply_env_provider_keys(_normalize_global_runtime_settings(row.get("value")))
+    return _apply_env_provider_keys(_default_global_runtime_settings())
 
 
 def _global_runtime_settings_for_user_payload(settings: Dict) -> Dict:
     safe = _normalize_global_runtime_settings(settings)
-    # Do not expose server API keys to non-admin users.
-    safe["ai"]["gemini_api_key"] = ""
-    safe["ai"]["openrouter_api_key"] = ""
-    safe["ai"]["agent_router_api_key"] = ""
+    # Do not expose server API keys to non-admin users. The client echoes these
+    # settings back on process requests, so the blanked values must never be
+    # treated as an override - see AI_OPTION_KEYS_ADMIN_ONLY.
+    for settings_key in PROVIDER_KEY_ENV_VARS:
+        safe["ai"][settings_key] = ""
+    safe["ai"]["provider_key_configured"] = {
+        settings_key: source != "unset" for settings_key, source in provider_key_sources().items()
+    }
     return safe
 
 
-def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict) -> Dict:
+def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict, is_admin: bool = False) -> Dict:
     opts = dict(request_options or {})
     request_opts = dict(request_options or {})
     settings = _normalize_global_runtime_settings(runtime_settings or {})
@@ -740,6 +1085,7 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
         "openrouter_api_key": str(ai.get("openrouter_api_key", "")),
         "agent_router_api_key": str(ai.get("agent_router_api_key", "")),
         "ai_first_cmos": bool(ai.get("ai_first_cmos", False)),
+        "temperature": float(ai.get("temperature", AI_TEMPERATURE_DEFAULT)),
         "section_wise": bool(ai.get("section_wise", True)),
         "section_threshold_chars": int(ai.get("section_threshold_chars", 12000)),
         "section_threshold_paragraphs": int(ai.get("section_threshold_paragraphs", 90)),
@@ -753,46 +1099,48 @@ def _apply_global_runtime_settings(request_options: Dict, runtime_settings: Dict
         "ollama_fallback_model_retry": bool(ai.get("ollama_fallback_model_retry", True)),
     }
 
-    # Request payload overrides must win for route-level explicit controls.
-    # This allows callers/tests to force AI/network behavior per request.
-    if "online_reference_validation" in request_opts:
-        opts["online_reference_validation"] = bool(request_opts.get("online_reference_validation"))
-    if "online_reference_serper_fallback" in request_opts:
-        opts["online_reference_serper_fallback"] = bool(request_opts.get("online_reference_serper_fallback"))
-    if "online_reference_validation_admin_cap" in request_opts:
-        try:
-            opts["online_reference_validation_admin_cap"] = int(request_opts.get("online_reference_validation_admin_cap"))
-        except Exception:
-            pass
-    if "auto_resolve_unresolved_references" in request_opts:
-        opts["auto_resolve_unresolved_references"] = bool(request_opts.get("auto_resolve_unresolved_references"))
+    # Request payload overrides.
+    #
+    # A caller may always ask for *less* work (turn AI off, skip network reference
+    # validation) — that is a de-escalation and safe for anyone. Choosing a
+    # different provider, model, network host or credential, or raising an
+    # admin-set cap, is privileged: without this split any authenticated user
+    # could point the server's AI client at an arbitrary host.
+    for flag in ("online_reference_validation", "online_reference_serper_fallback"):
+        if flag not in request_opts:
+            continue
+        requested = bool(request_opts.get(flag))
+        if is_admin or not requested:
+            opts[flag] = requested
+
+    if is_admin:
+        if "online_reference_validation_admin_cap" in request_opts:
+            try:
+                opts["online_reference_validation_admin_cap"] = int(request_opts.get("online_reference_validation_admin_cap"))
+            except Exception:
+                pass
+        if "auto_resolve_unresolved_references" in request_opts:
+            opts["auto_resolve_unresolved_references"] = bool(request_opts.get("auto_resolve_unresolved_references"))
 
     request_ai = request_opts.get("ai") if isinstance(request_opts.get("ai"), dict) else {}
     if request_ai:
-        for key in (
-            "enabled",
-            "provider",
-            "model",
-            "ollama_host",
-            "api_key",
-            "gemini_api_key",
-            "openrouter_api_key",
-            "agent_router_api_key",
-            "ai_first_cmos",
-            "section_wise",
-            "section_threshold_chars",
-            "section_threshold_paragraphs",
-            "section_chunk_chars",
-            "section_chunk_lines",
-            "global_consistency_max_chars",
-            "ollama_generate_timeout_seconds",
-            "ollama_health_timeout_seconds",
-            "ollama_retry_count",
-            "ollama_retry_backoff_seconds",
-            "ollama_fallback_model_retry",
-        ):
-            if key in request_ai:
-                opts["ai"][key] = request_ai[key]
+        for key in AI_OPTION_KEYS_ANY_CALLER:
+            if key not in request_ai:
+                continue
+            if key == "enabled" and bool(request_ai.get(key)) and not is_admin:
+                # Only turning AI off is a de-escalation.
+                continue
+            opts["ai"][key] = request_ai[key]
+
+        if is_admin:
+            for key in AI_OPTION_KEYS_ADMIN_ONLY:
+                if key in request_ai:
+                    opts["ai"][key] = request_ai[key]
+
+    host = str(opts["ai"].get("ollama_host") or "").strip()
+    if host and not _is_allowed_ollama_host(host):
+        print(f"[SECURITY] rejected ollama_host outside allowlist: {host!r}")
+        opts["ai"]["ollama_host"] = ""
     return opts
 
 
@@ -1107,10 +1455,32 @@ def _attach_journal_recommendations(process_payload: Dict, task: Dict, options: 
     except Exception as exc:
         payload["journal_recommendations"] = []
         payload["journal_recommendation_warning"] = f"Journal recommendation unavailable: {exc}"
+        _record_error(
+            code="JOURNAL_RECOMMENDATION_FAILED",
+            message=str(exc) or "Journal recommendation failed",
+            source="processing:journal_recommendations",
+            level="WARNING",
+            exc=exc,
+            task_id=str(task.get("id") or ""),
+            actor_user_id=str(task.get("user_id") or ""),
+        )
     return payload
 
 
-def _store_task_export_files(task_row: Dict, original_text: str, corrected_text: str):
+def _store_task_export_files(
+    task_row: Dict,
+    original_text: str,
+    corrected_text: str,
+    modes: Optional[List[str]] = None,
+):
+    """Generate and register DOCX export variants.
+
+    Defaults to the eager set (``EXPORT_EAGER_MODES``, ``clean`` only by
+    default). The remaining variants are produced on first download, which keeps
+    a normal process run from paying for three template re-parses nobody asked
+    for. Each file is written to a temp path and atomically moved into place so a
+    concurrent run can never leave a half-written DOCX behind.
+    """
     task_id = str(task_row.get("id") or "")
     file_name = str(task_row.get("file_name") or "manuscript.docx")
     task_dir = _task_dir(task_id)
@@ -1123,20 +1493,24 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
             source_docx_path = ""
 
     expires_at = int(time.time()) + FILE_RETENTION_DAYS * 24 * 3600
-    modes = ["clean", "highlighted", "highlighted_comments", "track_changes"]
-    print(f"[EXPORT] Generating {len(modes)} variants for task={task_id} source_docx={'yes' if source_docx_path else 'no'}")
+    requested = [str(mode or "").strip().lower() for mode in (modes or EXPORT_EAGER_MODES)]
+    selected = [mode for mode in requested if mode in EXPORT_MODES_ALL] or ["clean"]
+    print(f"[EXPORT] Generating {len(selected)} variant(s) {selected} for task={task_id} source_docx={'yes' if source_docx_path else 'no'}")
 
-    for mode in modes:
+    for mode in selected:
         mode_abs = os.path.join(task_dir, f"{mode}.docx")
+        tmp_abs = f"{mode_abs}.{uuid.uuid4().hex[:8]}.tmp"
         try:
             manuscript_service.generate_docx_file(
                 processor=processor,
                 original_text=original_text,
                 corrected_text=corrected_text,
                 file_type=mode,
-                dest_path=mode_abs,
+                dest_path=tmp_abs,
                 source_docx_path=source_docx_path,
             )
+            size_bytes = os.path.getsize(tmp_abs)
+            os.replace(tmp_abs, mode_abs)
             mode_rel = _to_storage_relative_path(mode_abs)
             _STORE.upsert_task_file(
                 task_id=task_id,
@@ -1144,14 +1518,28 @@ def _store_task_export_files(task_row: Dict, original_text: str, corrected_text:
                 storage_path=mode_rel,
                 download_name=_build_download_filename(file_name, mode),
                 mime_type=MIME_DOCX,
-                size_bytes=os.path.getsize(mode_abs),
+                size_bytes=size_bytes,
                 expires_at=expires_at,
             )
-            print(f"[EXPORT] OK  mode={mode} size={os.path.getsize(mode_abs)} bytes")
+            print(f"[EXPORT] OK  mode={mode} size={size_bytes} bytes")
         except Exception as _mode_exc:  # noqa: BLE001
-            import traceback as _tb
             print(f"[EXPORT] FAIL mode={mode} error={_mode_exc}")
-            _tb.print_exc()
+            traceback.print_exc()
+            _record_error(
+                code="EXPORT_VARIANT_FAILED",
+                message=f"Could not generate {mode} export: {_mode_exc}",
+                source="export",
+                exc=_mode_exc,
+                task_id=task_id,
+                actor_user_id=str(task_row.get("user_id") or ""),
+                context={"mode": mode, "has_source_docx": bool(source_docx_path)},
+            )
+        finally:
+            if os.path.exists(tmp_abs):
+                try:
+                    os.unlink(tmp_abs)
+                except Exception:
+                    pass
 
 
 def _task_summary(task_row: Dict) -> Dict:
@@ -1254,20 +1642,147 @@ def _upload_docx_to_task(context: SessionContext, file_name: str, byte_data: byt
             os.unlink(temp_path)
 
 
-def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+def _record_reference_lookup_failures(task: Dict, process_payload: Dict) -> None:
+    """Record one aggregated entry when online reference lookups failed.
+
+    The editor already downgrades a failed lookup to an ``error`` entry in the
+    report, which meant a broken Crossref key or a blocked egress route looked
+    identical to "no match found" from the outside.
+    """
+    report = process_payload.get("citation_reference_report") if isinstance(process_payload, dict) else {}
+    if not isinstance(report, dict):
+        return
+    online = report.get("online_validation") if isinstance(report.get("online_validation"), dict) else {}
+    summary = online.get("summary") if isinstance(online.get("summary"), dict) else {}
+    error_count = int(summary.get("error", 0) or 0)
+    if error_count <= 0:
+        return
+
+    reasons = []
+    for entry in (online.get("entries") or [])[:200]:
+        if isinstance(entry, dict) and str(entry.get("status") or "") == "error":
+            reason = str(entry.get("reason") or "").strip()
+            if reason and reason not in reasons:
+                reasons.append(reason)
+        if len(reasons) >= 3:
+            break
+
+    _record_error(
+        code="REFERENCE_LOOKUP_ERRORS",
+        message=f"{error_count} online reference lookup(s) failed during processing",
+        source="processing:reference_validation",
+        level="WARNING",
+        include_traceback=False,
+        task_id=str(task.get("id") or ""),
+        actor_user_id=str(task.get("user_id") or ""),
+        context={
+            "error_count": error_count,
+            "attempted": int(summary.get("attempted", 0) or 0),
+            "checked": int(summary.get("checked", 0) or 0),
+            "sample_reasons": reasons,
+            "serper_enabled": bool(online.get("serper_enabled", False)),
+        },
+    )
+
+
+def _summarize_run_result(process_payload: Dict) -> Dict:
+    """Reduce a process payload to a compact run summary for task_runs.result_json.
+
+    The authoritative result lives in tasks.reports_json. Persisting the whole
+    payload here duplicated the redline HTML, both texts and any base64 preview
+    images on every run-row write.
+    """
+    payload = process_payload if isinstance(process_payload, dict) else {}
+    audit = payload.get("processing_audit") if isinstance(payload.get("processing_audit"), dict) else {}
+    corrections = payload.get("corrections_report") if isinstance(payload.get("corrections_report"), dict) else {}
+    citation = payload.get("citation_reference_report") if isinstance(payload.get("citation_reference_report"), dict) else {}
+    autopilot = payload.get("autopilot") if isinstance(payload.get("autopilot"), dict) else {}
+
+    summary = {
+        "success": bool(payload.get("success", True)),
+        "task_id": str(payload.get("task_id") or ""),
+        "word_count": int(payload.get("word_count") or 0),
+        "processing_mode": str(audit.get("mode") or "unknown"),
+        "processing_note": str(payload.get("processing_note") or "")[:500],
+        "correction_total": int(corrections.get("total") or 0),
+        "correction_counts": corrections.get("counts") if isinstance(corrections.get("counts"), dict) else {},
+        "reference_issue_count": _count_reference_issues_from_payload(payload),
+        "citation_issue_count": _count_citation_issues_from_payload(payload),
+        "reference_entry_count": len(citation.get("entries") or []) if isinstance(citation.get("entries"), list) else 0,
+        "journal_recommendation_count": len(payload.get("journal_recommendations") or []),
+    }
+    if payload.get("status"):
+        summary["status"] = str(payload.get("status"))
+    if autopilot:
+        summary["autopilot"] = {
+            "review_required": bool(autopilot.get("review_required", False)),
+            "heal_executed": bool(autopilot.get("heal_executed", False)),
+            "decision_reasons": list(autopilot.get("decision_reasons") or [])[:12],
+        }
+    return summary
+
+
+def _make_progress_publisher(task_id: str, task_run_id: str = ""):
+    """Return a progress callback that updates the in-process job and the run row.
+
+    The in-memory job is a same-worker fast path; ``task_runs`` is what a poll
+    served by any other worker (or after a restart) reads.
+    """
+    safe_task_id = str(task_id or "")
+    safe_run_id = str(task_run_id or "")
+    last_written = {"percent": -1.0, "stage": ""}
+
+    def publish(progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
+        if not safe_task_id:
+            return
+        _PROCESSING_JOB_QUEUE.update_progress(
+            task_id=safe_task_id,
+            progress_percent=progress_percent,
+            stage=stage,
+            tokens_consumed=tokens_consumed,
+            estimated_seconds_remaining=estimated_seconds_remaining,
+        )
+        if not safe_run_id:
+            return
+        try:
+            percent = float(progress_percent)
+        except Exception:
+            percent = 0.0
+        stage_text = str(stage or "")
+        # Skip no-op writes so a chatty callback does not hammer the store.
+        if abs(percent - last_written["percent"]) < 0.5 and stage_text == last_written["stage"]:
+            return
+        last_written["percent"] = percent
+        last_written["stage"] = stage_text
+        try:
+            _STORE.update_task_run(
+                run_id=safe_run_id,
+                user_id="",
+                is_admin=True,
+                progress_percent=percent,
+                stage=stage_text,
+                tokens_consumed=int(tokens_consumed or 0),
+                estimated_seconds_remaining=int(estimated_seconds_remaining or 0),
+            )
+        except Exception as exc:
+            _record_error(
+                code="PROGRESS_PERSIST_FAILED",
+                message=str(exc) or "Could not persist run progress",
+                source="processing:progress",
+                level="WARNING",
+                exc=exc,
+                task_id=safe_task_id,
+                context={"task_run_id": safe_run_id},
+            )
+
+    return publish
+
+
+def _process_task(context: SessionContext, task: Dict, options: Dict, task_run_id: str = "") -> Dict:
     _increment_runtime_counter(context.session_id, "process_runs_started")
     processor = DocumentProcessor()
     task_id = str(task.get("id") or "")
-    def progress_callback(progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
-        if task_id:
-            _PROCESSING_JOB_QUEUE.update_progress(
-                task_id=task_id,
-                progress_percent=progress_percent,
-                stage=stage,
-                tokens_consumed=tokens_consumed,
-                estimated_seconds_remaining=estimated_seconds_remaining
-            )
-    processor.set_progress_callback(progress_callback)
+    processor.set_progress_callback(_make_progress_publisher(task_id, task_run_id))
     original_text = str(task.get("original_text") or "")
     previous_full_corrected = str(task.get("full_corrected_text") or "")
     processing_source_text = original_text
@@ -1306,18 +1821,28 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
 
     try:
         _append_reference_unresolved_trend_sample(task=task, process_payload=process_payload)
-    except Exception:
-        pass
+    except Exception as exc:
+        _record_error(
+            code="REFERENCE_TREND_SAMPLE_FAILED",
+            message=str(exc) or "Could not append unresolved-reference trend sample",
+            source="processing:reference_trend",
+            level="WARNING",
+            exc=exc,
+            task_id=task_id,
+        )
+
+    _record_reference_lookup_failures(task=task, process_payload=process_payload)
 
     reports = _extract_reports_from_process_payload(process_payload)
     updated = _STORE.update_task_processing_result(
         task_id=str(task.get("id") or ""),
-        user_id=context.user_id,
+        user_id=str(task.get("user_id") or context.user_id),
         corrected_text=corrected_text,
         full_corrected_text=full_corrected_text,
         word_count=process_payload["word_count"],
         options=safe_options,
         reports=reports,
+        is_admin=context.role == ROLE_ADMIN,
     )
     if updated is None:
         raise RuntimeError("Task update failed")
@@ -1360,19 +1885,11 @@ def _process_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     return process_payload
 
 
-def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict, task_run_id: str = "") -> Dict:
     _increment_runtime_counter(context.session_id, "heal_bibliography_started")
     processor = DocumentProcessor()
     task_id = str(task.get("id") or "")
-    def progress_callback(progress_percent: float, stage: str, tokens_consumed: int = 0, estimated_seconds_remaining: int = 0):
-        if task_id:
-            _PROCESSING_JOB_QUEUE.update_progress(
-                task_id=task_id,
-                progress_percent=progress_percent,
-                stage=stage,
-                tokens_consumed=tokens_consumed,
-                estimated_seconds_remaining=estimated_seconds_remaining
-            )
+    progress_callback = _make_progress_publisher(task_id, task_run_id)
     processor.set_progress_callback(progress_callback)
 
     source_text = (
@@ -1407,12 +1924,13 @@ def _heal_bibliography_task(context: SessionContext, task: Dict, options: Dict) 
 
     updated = _STORE.update_task_processing_result(
         task_id=task_id,
-        user_id=context.user_id,
+        user_id=str(task.get("user_id") or context.user_id),
         corrected_text=healed_text,
         full_corrected_text=healed_text,
         word_count=process_payload["word_count"],
         options=options,
         reports=reports,
+        is_admin=context.role == ROLE_ADMIN,
     )
     if updated is None:
         raise RuntimeError("Task update failed during healing")
@@ -1539,16 +2057,17 @@ def _persist_autopilot_audit(
 
     _STORE.update_task_processing_result(
         task_id=task_id,
-        user_id=context.user_id,
+        user_id=str(task_row.get("user_id") or context.user_id),
         corrected_text=corrected_text,
         full_corrected_text=full_corrected_text,
         word_count=word_count,
         options=options,
         reports=reports,
+        is_admin=context.role == ROLE_ADMIN,
     )
 
 
-def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
+def _autopilot_task(context: SessionContext, task: Dict, options: Dict, task_run_id: str = "") -> Dict:
     """Run an autonomous processing pipeline with policy-based gates."""
     effective_options = copy.deepcopy(options) if isinstance(options, dict) else {}
     automation = effective_options.get("automation") if isinstance(effective_options.get("automation"), dict) else {}
@@ -1581,7 +2100,7 @@ def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
     min_overall_confidence = max(0.0, min(1.0, min_overall_confidence))
     min_reference_confidence_for_autoheal = max(0.0, min(1.0, min_reference_confidence_for_autoheal))
 
-    process_payload = _process_task(context, task, process_options)
+    process_payload = _process_task(context, task, process_options, task_run_id=task_run_id)
     process_confidence = _compute_autopilot_confidence(process_payload)
     issue_count = _count_reference_issues_from_payload(process_payload)
     should_heal = bool(
@@ -1608,7 +2127,7 @@ def _autopilot_task(context: SessionContext, task: Dict, options: Dict) -> Dict:
         ) or task
         heal_options = copy.deepcopy(process_options)
         heal_options["online_reference_validation"] = True
-        healed_payload = _heal_bibliography_task(context, latest_task, heal_options)
+        healed_payload = _heal_bibliography_task(context, latest_task, heal_options, task_run_id=task_run_id)
 
     final_payload = healed_payload if isinstance(healed_payload, dict) else process_payload
     final_confidence = _compute_autopilot_confidence(final_payload)
@@ -1752,9 +2271,10 @@ def _apply_group_decisions(context: SessionContext, task: Dict, group_decisions:
 
     updated = _STORE.update_task_corrected_text(
         task_id=str(task.get("id") or ""),
-        user_id=context.user_id,
+        user_id=str(task.get("user_id") or context.user_id),
         corrected_text=corrected_text,
         reports=reports,
+        is_admin=context.role == ROLE_ADMIN,
     )
     if updated is None:
         raise RuntimeError("Task update failed")
@@ -1794,8 +2314,13 @@ def _resolve_task_download_file(context: SessionContext, task_id: str, file_type
             original = str(task.get("original_text") or "")
             status = str(task.get("status") or "<none>")
             if corrected.strip() and original.strip():
-                print(f"[DOWNLOAD] regenerating all export variants for task={task_id!r} status={status!r}")
-                _store_task_export_files(task, original_text=original, corrected_text=corrected)
+                print(f"[DOWNLOAD] regenerating export variant {normalized_type!r} for task={task_id!r} status={status!r}")
+                _store_task_export_files(
+                    task,
+                    original_text=original,
+                    corrected_text=corrected,
+                    modes=[normalized_type],
+                )
                 file_row = _STORE.get_task_file_for_user(
                     task_id=task_id,
                     file_type=normalized_type,
@@ -2096,14 +2621,24 @@ def _run_retention_cleanup(force: bool = False):
             _STORE.mark_task_file_deleted(str(file_row.get("id") or ""), cutoff)
 
         _STORE.purge_expired_sessions()
+        try:
+            _STORE.purge_error_events(before_ts=cutoff - ERROR_LOG_RETENTION_DAYS * 24 * 3600)
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[ERRORLOG] retention purge skipped: {exc}")
         _LAST_CLEANUP_AT = now
 
 
 def _maybe_run_cleanup():
     try:
         _run_retention_cleanup(force=False)
-    except Exception:
-        pass
+    except Exception as exc:
+        _record_error(
+            code="RETENTION_CLEANUP_FAILED",
+            message=str(exc) or "Retention cleanup failed",
+            source="maintenance:retention",
+            level="WARNING",
+            exc=exc,
+        )
 
 
 def _validate_ai_provider_runtime(provider: str, model: str, api_key: str, ollama_host: str) -> Tuple[bool, str]:
@@ -2334,6 +2869,7 @@ def _render_html_shell(
     fragment_values["LOGIN_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/login.html"), fragment_values)
     fragment_values["APP_HEADER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_header.html"), fragment_values)
     fragment_values["ASSISTANT_PANEL_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/assistant_panel.html"), fragment_values)
+    fragment_values["ADMIN_PANEL_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/admin_panel.html"), fragment_values)
     fragment_values["APP_FOOTER_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/app_footer.html"), fragment_values)
     fragment_values["SCRIPT_BUNDLE_FRAGMENT"] = _render_web_template(_read_web_asset("fragments/script_bundle.html"), fragment_values)
     shell_values = {
@@ -2402,15 +2938,23 @@ def _build_route_dependencies():
         normalize_global_runtime_settings=_normalize_global_runtime_settings,
         processing_job_queue=_PROCESSING_JOB_QUEUE,
         process_task=_process_task,
+        summarize_run_result=_summarize_run_result,
         heal_bibliography_task=_heal_bibliography_task,
         autopilot_task=_autopilot_task,
         public_user_payload=_public_user_payload,
         read_global_runtime_settings=_read_global_runtime_settings,
+        provider_key_sources=provider_key_sources,
         read_json_payload=_read_json_payload,
         read_runtime_telemetry=_read_runtime_telemetry,
         read_task_download_payload=_read_task_download_payload,
         check_rate_limit=_check_rate_limit,
         record_audit=_record_audit,
+        record_error=_record_error,
+        client_error_reporting_enabled=CLIENT_ERROR_REPORTING_ENABLED,
+        client_error_rate_limit_count=CLIENT_ERROR_RATE_LIMIT_COUNT,
+        client_error_rate_limit_window_seconds=CLIENT_ERROR_RATE_LIMIT_WINDOW_SECONDS,
+        error_log_path=_ERROR_LOG_PATH,
+        error_log_retention_days=ERROR_LOG_RETENTION_DAYS,
         render_html_shell=_render_html_shell,
         require_admin=require_admin,
         require_auth=require_auth,
@@ -2441,11 +2985,29 @@ def _build_route_dependencies():
 def _register_routes():
     from routes import register_routes
 
+    # Installed before route registration so every callback is wrapped.
+    app.install(ErrorCapturePlugin())
     register_routes(app, _build_route_dependencies())
+
+
+def _reap_orphaned_task_runs_on_boot():
+    """Fail runs abandoned by a previous process so tasks never stick in PROCESSING.
+
+    The job queue is per-process and does not survive a restart, so anything
+    still marked PENDING/RUNNING at boot has no worker behind it.
+    """
+    try:
+        reaped = _STORE.reap_orphaned_task_runs()
+    except Exception as exc:  # pragma: no cover - defensive boot path
+        print(f"[BOOT] task-run reaper skipped: {exc}")
+        return
+    if reaped:
+        print(f"[BOOT] marked {reaped} orphaned task run(s) FAILED after restart")
 
 
 _register_routes()
 _validate_startup_config()
+_reap_orphaned_task_runs_on_boot()
 
 
 def main():

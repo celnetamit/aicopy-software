@@ -39,6 +39,7 @@ def get_default_runtime_telemetry() -> Dict[str, Any]:
         "rewrite_strength_counts": {},
         "explain_edits_counts": {},
         "fallback_reason_counts": {},
+        "errors_recorded": 0,
         "errors_by_code": {},
     }
 
@@ -146,6 +147,9 @@ def build_process_payload(
     """Build standard process response payload with rich metadata and features."""
     corrections_report = processor.build_corrections_report(original_text, corrected_text)
     edit_explanations = processor.build_edit_explanations(corrections_report, options or {})
+    # Built once and shared by both HTML channels below; it was previously
+    # computed twice from identical arguments.
+    annotated_html = processor.build_foreign_annotated_html(corrected_text)
     process_payload = {
         "success": True,
         "task_id": task_id,
@@ -155,11 +159,16 @@ def build_process_payload(
         "word_count": len(str(corrected_text or "").split()),
         "redline_html": processor.build_redline_html(original_text, corrected_text),
         "prose_only_diff": processor.build_prose_only_diff_text(original_text, corrected_text),
-        "strict_cmos_issues": processor.build_strict_cmos_issues_summary(original_text, corrected_text, options or {}),
-        "corrected_annotated_html": processor.build_foreign_annotated_html(corrected_text),
+        "strict_cmos_issues": processor.build_strict_cmos_issues_summary(
+            original_text,
+            corrected_text,
+            options or {},
+            corrections_report=corrections_report,
+        ),
+        "corrected_annotated_html": annotated_html,
         # Phase 1 rich-text channel: preserve a dedicated rich HTML field while
         # keeping corrected_text as the single export source of truth.
-        "corrected_rich_html": processor.build_foreign_annotated_html(corrected_text),
+        "corrected_rich_html": annotated_html,
         "corrections_report": corrections_report,
         "noun_report": processor.build_noun_report(corrected_text),
         "domain_report": processor.get_domain_report(),

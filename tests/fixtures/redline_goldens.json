@@ -1,0 +1,607 @@
+{
+  "blank_lines_preserved": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Para one edited.",
+            "corrected": "Para one edited.",
+            "line": 1,
+            "original": "Para one."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,4 +1,4 @@\n-Para one.\n+Para one edited.\n \n \n Para two.",
+    "redline_html": "Para one<span class=\"redline-add\"> edited</span>.\n\n\nPara two."
+  },
+  "empty_corrected": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Original content that vanished.",
+            "corrected": "",
+            "line": 1,
+            "original": "Original content that vanished."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-Original content that vanished.\n+",
+    "redline_html": "<span class=\"redline-del\">Original content that vanished.</span>"
+  },
+  "empty_original": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Newly generated content.",
+            "corrected": "Newly generated content.",
+            "line": 1,
+            "original": ""
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-\n+Newly generated content.",
+    "redline_html": "<span class=\"redline-add\">Newly generated content.</span>"
+  },
+  "html_escaping": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 1,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [
+          {
+            "context": "Compare a < b & c > d in the 'result' set.",
+            "corrected": "Compare a < b & c > d in the 'result' set.",
+            "line": 1,
+            "original": "Compare a < b & c > d in the \"result\" set."
+          }
+        ],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-Compare a < b & c > d in the \"result\" set.\n+Compare a < b & c > d in the 'result' set.",
+    "redline_html": "Compare a &lt; b &amp; c &gt; d in the <span class=\"redline-del\">&quot;</span><span class=\"redline-add\">&#x27;</span>result<span class=\"redline-del\">&quot;</span><span class=\"redline-add\">&#x27;</span> set."
+  },
+  "identical": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 0
+    },
+    "prose_only_diff": "",
+    "redline_html": "The quick brown fox.\nJumps over the lazy dog."
+  },
+  "line_deletion": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Beta line.",
+            "corrected": "",
+            "line": 2,
+            "original": "Beta line."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,3 +1,2 @@\n Alpha line.\n-Beta line.\n Gamma line.",
+    "redline_html": "Alpha<span class=\"redline-del\"> line.\nBeta</span> line.\nGamma line."
+  },
+  "line_insertion": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Beta line.",
+            "corrected": "Beta line.",
+            "line": 2,
+            "original": ""
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,2 +1,3 @@\n Alpha line.\n+Beta line.\n Gamma line.",
+    "redline_html": "Alpha<span class=\"redline-add\"> line.\nBeta</span> line.\nGamma line."
+  },
+  "long_paragraph_heavy_rewrite": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Sentence 0 is concise. Sentence 1 is concise. Sentence 2 is concise. Sentence 3 is concise. Sentence 4 is concise. Sentence 5 is concise. Sentence 6 is concise. Sentence 7 is concise. Sentence 8 is concise. Sentence 9...",
+            "corrected": "Sentence 0 is concise. Sentence 1 is concise. Sentence 2 is concise. Sentence 3 is concise. Sentence 4 is concise. Sentence 5 is concise. Sentence 6 is concise. Sentence 7 is concise. Sentence 8 is concise. Sentence 9 is concise. Sentence 10 is concise. Sentence 11 is concise. Sentence 12 is concise. Sentence 13 is concise. Sentence 14 is concise. Sentence 15 is concise. Sentence 16 is concise. Sentence 17 is concise. Sentence 18 is concise. Sentence 19 is concise. Sentence 20 is concise. Sentence 21 is concise. Sentence 22 is concise. Sentence 23 is concise. Sentence 24 is concise. Sentence 25 is concise. Sentence 26 is concise. Sentence 27 is concise. Sentence 28 is concise. Sentence 29 is concise.",
+            "line": 1,
+            "original": "The original wording of sentence 0 is verbose. The original wording of sentence 1 is verbose. The original wording of sentence 2 is verbose. The original wording of sentence 3 is verbose. The original wording of sentence 4 is verbose. The original wording of sentence 5 is verbose. The original wording of sentence 6 is verbose. The original wording of sentence 7 is verbose. The original wording of sentence 8 is verbose. The original wording of sentence 9 is verbose. The original wording of sentence 10 is verbose. The original wording of sentence 11 is verbose. The original wording of sentence 12 is verbose. The original wording of sentence 13 is verbose. The original wording of sentence 14 is verbose. The original wording of sentence 15 is verbose. The original wording of sentence 16 is verbose. The original wording of sentence 17 is verbose. The original wording of sentence 18 is verbose. The original wording of sentence 19 is verbose. The original wording of sentence 20 is verbose. The original wording of sentence 21 is verbose. The original wording of sentence 22 is verbose. The original wording of sentence 23 is verbose. The original wording of sentence 24 is verbose. The original wording of sentence 25 is verbose. The original wording of sentence 26 is verbose. The original wording of sentence 27 is verbose. The original wording of sentence 28 is verbose. The original wording of sentence 29 is verbose."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-The original wording of sentence 0 is verbose. The original wording of sentence 1 is verbose. The original wording of sentence 2 is verbose. The original wording of sentence 3 is verbose. The original wording of sentence 4 is verbose. The original wording of sentence 5 is verbose. The original wording of sentence 6 is verbose. The original wording of sentence 7 is verbose. The original wording of sentence 8 is verbose. The original wording of sentence 9 is verbose. The original wording of sentence 10 is verbose. The original wording of sentence 11 is verbose. The original wording of sentence 12 is verbose. The original wording of sentence 13 is verbose. The original wording of sentence 14 is verbose. The original wording of sentence 15 is verbose. The original wording of sentence 16 is verbose. The original wording of sentence 17 is verbose. The original wording of sentence 18 is verbose. The original wording of sentence 19 is verbose. The original wording of sentence 20 is verbose. The original wording of sentence 21 is verbose. The original wording of sentence 22 is verbose. The original wording of sentence 23 is verbose. The original wording of sentence 24 is verbose. The original wording of sentence 25 is verbose. The original wording of sentence 26 is verbose. The original wording of sentence 27 is verbose. The original wording of sentence 28 is verbose. The original wording of sentence 29 is verbose.\n+Sentence 0 is concise. Sentence 1 is concise. Sentence 2 is concise. Sentence 3 is concise. Sentence 4 is concise. Sentence 5 is concise. Sentence 6 is concise. Sentence 7 is concise. Sentence 8 is concise. Sentence 9 is concise. Sentence 10 is concise. Sentence 11 is concise. Sentence 12 is concise. Sentence 13 is concise. Sentence 14 is concise. Sentence 15 is concise. Sentence 16 is concise. Sentence 17 is concise. Sentence 18 is concise. Sentence 19 is concise. Sentence 20 is concise. Sentence 21 is concise. Sentence 22 is concise. Sentence 23 is concise. Sentence 24 is concise. Sentence 25 is concise. Sentence 26 is concise. Sentence 27 is concise. Sentence 28 is concise. Sentence 29 is concise.",
+    "redline_html": "<span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 0 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 1 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 2 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 3 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 4 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 5 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 6 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 7 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 8 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 9 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 10 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 11 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 12 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 13 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 14 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 15 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 16 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 17 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 18 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 19 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 20 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 21 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 22 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 23 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 24 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 25 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 26 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 27 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 28 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>. <span class=\"redline-del\">The original wording of sentence</span><span class=\"redline-add\">Sentence</span> 29 is <span class=\"redline-del\">verbose</span><span class=\"redline-add\">concise</span>."
+  },
+  "missing_placeholder": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "2. Brown K. Untitled work. J Real Journal. 2019.",
+            "corrected": "2. Brown K. Untitled work. J Real Journal. 2019.",
+            "line": 1,
+            "original": "2. Brown K. Untitled work. [MISSING: journal] 2019."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-2. Brown K. Untitled work. [MISSING: journal] 2019.\n+2. Brown K. Untitled work. J Real Journal. 2019.",
+    "redline_html": "2. Brown K. Untitled work. <span class=\"redline-del\">[MISSING:</span><span class=\"redline-add\">J</span> <span class=\"redline-del\">journal]</span><span class=\"redline-add\">Real Journal.</span> 2019."
+  },
+  "multi_line_rewrite": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 2
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "First paragraph rewritten here.",
+            "corrected": "First paragraph rewritten here.",
+            "line": 1,
+            "original": "First paragraph text here."
+          },
+          {
+            "context": "Third paragraph entirely replaced with new wording.",
+            "corrected": "Third paragraph entirely replaced with new wording.",
+            "line": 3,
+            "original": "Third paragraph text here."
+          }
+        ]
+      },
+      "total": 2
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,3 +1,3 @@\n-First paragraph text here.\n+First paragraph rewritten here.\n Second paragraph text here.\n-Third paragraph text here.\n+Third paragraph entirely replaced with new wording.",
+    "redline_html": "First paragraph <span class=\"redline-del\">text</span><span class=\"redline-add\">rewritten</span> here.\nSecond paragraph text here.\nThird paragraph <span class=\"redline-del\">text</span><span class=\"redline-add\">entirely</span> <span class=\"redline-del\">here</span><span class=\"redline-add\">replaced with new wording</span>."
+  },
+  "numeric_citations": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 1,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [
+          {
+            "context": "Prior work [1,2] and later work [3,4] agree.",
+            "corrected": "Prior work [1,2] and later work [3,4] agree.",
+            "line": 1,
+            "original": "Prior work [1,2] and later work [3] agree."
+          }
+        ],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "",
+    "redline_html": "Prior work [1,2] and later work [3<span class=\"redline-add\">,4</span>] agree."
+  },
+  "punctuation_only": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 1,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [
+          {
+            "context": "Results were significant, and reproducible.",
+            "corrected": "Results were significant, and reproducible.",
+            "line": 1,
+            "original": "Results were significant , and reproducible ."
+          }
+        ],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "",
+    "redline_html": "Results were significant<span class=\"redline-del\"> </span>, and reproducible<span class=\"redline-del\"> </span>."
+  },
+  "reference_entry": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 1,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [
+          {
+            "context": "1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67. doi:10.1000/xyz",
+            "corrected": "1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67. doi:10.1000/xyz",
+            "line": 1,
+            "original": "1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67."
+          }
+        ],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67.\n+1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67. doi:10.1000/xyz",
+    "redline_html": "1. Smith J, Doe A. A study of things. J Test. 2020;12(3):45-67.<span class=\"redline-add\"> doi:10.1000/xyz</span>"
+  },
+  "reordered_lines": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 2
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Gamma.",
+            "corrected": "Gamma.",
+            "line": 2,
+            "original": ""
+          },
+          {
+            "context": "Gamma.",
+            "corrected": "",
+            "line": 4,
+            "original": "Gamma."
+          }
+        ]
+      },
+      "total": 2
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,4 +1,4 @@\n Alpha.\n+Gamma.\n Beta.\n-Gamma.\n Delta.",
+    "redline_html": "Alpha<span class=\"redline-add\">.\nGamma</span>.\nBeta.\n<span class=\"redline-del\">Gamma.\n</span>Delta."
+  },
+  "sentence_case_heading": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 1,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [
+          {
+            "context": "Introduction",
+            "corrected": "Introduction",
+            "line": 1,
+            "original": "INTRODUCTION"
+          }
+        ],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,2 +1,2 @@\n-INTRODUCTION\n+Introduction\n The study examines quantum dots.",
+    "redline_html": "<span class=\"redline-del\">INTRODUCTION</span><span class=\"redline-add\">Introduction</span>\nThe study examines quantum dots."
+  },
+  "single_word_replacement": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "The color of the sample was measured.",
+            "corrected": "The color of the sample was measured.",
+            "line": 1,
+            "original": "The colour of the sample was measured."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-The colour of the sample was measured.\n+The color of the sample was measured.",
+    "redline_html": "The <span class=\"redline-del\">colour</span><span class=\"redline-add\">color</span> of the sample was measured."
+  },
+  "structural_markers": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "[[CELL_PARA]]Alpha edited",
+            "corrected": "[[CELL_PARA]]Alpha edited",
+            "line": 1,
+            "original": "[[CELL_PARA]]Alpha"
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,2 +1,2 @@\n-[[CELL_PARA]]Alpha\n+[[CELL_PARA]]Alpha edited\n [[TEXTBOX]]Beta note",
+    "redline_html": "[[CELL_PARA]]Alpha<span class=\"redline-add\"> edited</span>\n[[TEXTBOX]]Beta note"
+  },
+  "trailing_newline": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 0,
+        "reference": 0,
+        "spelling": 0,
+        "style": 1
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [],
+        "reference": [],
+        "spelling": [],
+        "style": [
+          {
+            "context": "Line with trailing newline edited.",
+            "corrected": "Line with trailing newline edited.",
+            "line": 1,
+            "original": "Line with trailing newline."
+          }
+        ]
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1,2 +1,2 @@\n-Line with trailing newline.\n+Line with trailing newline edited.\n ",
+    "redline_html": "Line with trailing newline<span class=\"redline-add\"> edited</span>.\n"
+  },
+  "unicode_and_superscript": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 1,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [
+          {
+            "context": "Sample ² showed 50 µm growth in café conditions.",
+            "corrected": "Sample ² showed 50 µm growth in café conditions.",
+            "line": 1,
+            "original": "Sample ¹ showed 50 µm growth in café conditions."
+          }
+        ],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "--- before_body_prose_only.txt\n+++ after_body_prose_only.txt\n@@ -1 +1 @@\n-Sample ¹ showed 50 µm growth in café conditions.\n+Sample ² showed 50 µm growth in café conditions.",
+    "redline_html": "Sample <span class=\"redline-del\">¹</span><span class=\"redline-add\">²</span> showed 50 µm growth in café conditions."
+  },
+  "whitespace_collapse": {
+    "corrections_report": {
+      "counts": {
+        "capitalization": 0,
+        "citation": 0,
+        "punctuation": 1,
+        "reference": 0,
+        "spelling": 0,
+        "style": 0
+      },
+      "groups": {
+        "capitalization": [],
+        "citation": [],
+        "punctuation": [
+          {
+            "context": "Too many spaces here.",
+            "corrected": "Too many spaces here.",
+            "line": 1,
+            "original": "Too    many     spaces here."
+          }
+        ],
+        "reference": [],
+        "spelling": [],
+        "style": []
+      },
+      "total": 1
+    },
+    "prose_only_diff": "",
+    "redline_html": "Too<span class=\"redline-del\">    </span><span class=\"redline-add\"> </span>many<span class=\"redline-del\">     </span><span class=\"redline-add\"> </span>spaces here."
+  }
+}

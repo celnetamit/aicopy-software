@@ -10,6 +10,69 @@ from urllib.parse import quote
 from typing import List, Tuple, Dict, Optional, Any, Callable
 
 import requests
+from concurrent.futures import ThreadPoolExecutor
+from requests.adapters import HTTPAdapter
+
+try:
+    from urllib3.util.retry import Retry
+except Exception:  # pragma: no cover - urllib3 always ships with requests
+    Retry = None
+
+
+def _env_int(key: str, default_value: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(os.getenv(key, "") or default_value)
+    except Exception:
+        parsed = default_value
+    return max(min_value, min(max_value, parsed))
+
+
+# How many reference lookups may be in flight at once. Each reference is an
+# independent set of HTTP calls, so the loop was previously pure dead time.
+REFERENCE_LOOKUP_CONCURRENCY = _env_int("REFERENCE_LOOKUP_CONCURRENCY", 6, 1, 24)
+_HTTP_POOL_SIZE = max(16, REFERENCE_LOOKUP_CONCURRENCY * 4)
+
+_SESSION_LOCK = threading.Lock()
+_HTTP_SESSION: Optional[requests.Session] = None
+
+
+def get_http_session() -> requests.Session:
+    """Return the process-wide pooled HTTP session for metadata lookups.
+
+    Without connection reuse every Crossref/OpenAlex/Serper call paid a fresh
+    TCP + TLS handshake. Retries cover the transient statuses these public APIs
+    return under load.
+    """
+    global _HTTP_SESSION
+    if _HTTP_SESSION is not None:
+        return _HTTP_SESSION
+    with _SESSION_LOCK:
+        if _HTTP_SESSION is not None:
+            return _HTTP_SESSION
+        session = requests.Session()
+        session.headers.update({"User-Agent": "manuscript-editor/1.0"})
+        if Retry is not None:
+            retry = Retry(
+                total=2,
+                connect=2,
+                read=2,
+                status=2,
+                backoff_factor=0.4,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods=frozenset(["GET", "POST"]),
+                raise_on_status=False,
+            )
+            adapter = HTTPAdapter(
+                max_retries=retry,
+                pool_connections=_HTTP_POOL_SIZE,
+                pool_maxsize=_HTTP_POOL_SIZE,
+            )
+        else:  # pragma: no cover - defensive
+            adapter = HTTPAdapter(pool_connections=_HTTP_POOL_SIZE, pool_maxsize=_HTTP_POOL_SIZE)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        _HTTP_SESSION = session
+        return _HTTP_SESSION
 
 
 class ChicagoEditor:
@@ -20,7 +83,9 @@ class ChicagoEditor:
     ONLINE_VALIDATION_MAX_REFERENCES = ONLINE_VALIDATION_ADMIN_CAP_DEFAULT
     ONLINE_VALIDATION_TIMEOUT_SECONDS = 5
     ONLINE_VALIDATION_CACHE_TTL_SECONDS = 6 * 60 * 60
-    ONLINE_VALIDATION_CACHE_MAX_ENTRIES = 512
+    # One 150-reference run can produce ~450 entries, so 512 meant consecutive
+    # manuscripts evicted each other before the TTL ever mattered.
+    ONLINE_VALIDATION_CACHE_MAX_ENTRIES = _env_int("ONLINE_VALIDATION_CACHE_MAX_ENTRIES", 4000, 512, 100_000)
     SERPER_SEARCH_ENDPOINT = "https://google.serper.dev/search"
     SERPER_RESULTS_LIMIT = 5
     SERPER_MAX_TITLE_TERMS = 14
@@ -281,11 +346,12 @@ class ChicagoEditor:
         self._online_lookup_metrics = self._default_online_lookup_metrics()
 
     def _increment_online_lookup_metric(self, key: str, value: int = 1):
-        """Increment one lookup metric counter."""
+        """Increment one lookup metric counter (safe under parallel lookups)."""
         if not key:
             return
-        current = int(self._online_lookup_metrics.get(key, 0) or 0)
-        self._online_lookup_metrics[key] = current + int(value)
+        with self._online_lookup_metrics_lock:
+            current = int(self._online_lookup_metrics.get(key, 0) or 0)
+            self._online_lookup_metrics[key] = current + int(value)
 
     def _publish_online_lookup_metrics(self):
         """Publish this run's lookup metrics to process-shared diagnostics state."""
@@ -3125,6 +3191,9 @@ class ChicagoEditor:
             self._publish_online_lookup_metrics()
             return report
 
+        # Pass 1 - plan without touching the network. Each slot is either a
+        # ready-made result or a pending lookup, and slot order is the report order.
+        planned: List[Dict[str, Any]] = []
         checked = 0
         for item in ref_entries:
             if checked >= effective_limit:
@@ -3147,13 +3216,51 @@ class ChicagoEditor:
                 continue
 
             checked += 1
-            result = self._validate_reference_online(number, entry, metadata, allow_serper=serper_enabled, options=options)
+            planned.append({"number": number, "entry": entry, "metadata": metadata})
+
+        # Pass 2 - run the independent lookups concurrently. Results are collected
+        # by index so the report order matches the serial behaviour exactly.
+        results: List[Optional[Dict[str, Any]]] = [None] * len(planned)
+
+        def run_one(index: int) -> None:
+            plan = planned[index]
+            results[index] = self._validate_reference_online(
+                plan["number"],
+                plan["entry"],
+                plan["metadata"],
+                allow_serper=serper_enabled,
+                options=options,
+            )
+
+        concurrency = self._resolve_reference_lookup_concurrency(options)
+        if len(planned) <= 1 or concurrency <= 1:
+            for index in range(len(planned)):
+                run_one(index)
+        else:
+            with ThreadPoolExecutor(
+                max_workers=min(concurrency, len(planned)),
+                thread_name_prefix="ref-lookup",
+            ) as pool:
+                list(pool.map(run_one, range(len(planned))))
+
+        # Pass 3 - aggregate in order.
+        for index, plan in enumerate(planned):
+            result = results[index]
+            if result is None:  # pragma: no cover - defensive
+                result = {
+                    "number": plan["number"],
+                    "entry": plan["entry"],
+                    "status": "error",
+                    "reason": "Online validation did not return a result.",
+                }
             summary["checked"] += 1
             status = str(result.get("status") or "error")
             if status != "skipped":
                 summary["attempted"] += 1
             summary[status] = int(summary.get(status, 0)) + 1
             report["entries"].append(result)
+
+        report["lookup_concurrency"] = concurrency
 
         if checked >= effective_limit and total_detected_references > effective_limit:
             report["messages"].append(
@@ -3171,6 +3278,17 @@ class ChicagoEditor:
             report["messages"].append("Serper fallback is disabled by runtime settings.")
         self._publish_online_lookup_metrics()
         return report
+
+    def _resolve_reference_lookup_concurrency(self, options: Optional[Dict[str, Any]]) -> int:
+        """Resolve how many reference lookups may run in parallel."""
+        raw_value = REFERENCE_LOOKUP_CONCURRENCY
+        if isinstance(options, dict):
+            raw_value = options.get("reference_lookup_concurrency", raw_value)
+        try:
+            parsed = int(raw_value)
+        except Exception:
+            parsed = REFERENCE_LOOKUP_CONCURRENCY
+        return max(1, min(24, parsed))
 
     def _resolve_online_validation_admin_cap(self, options: Optional[Dict[str, Any]]) -> int:
         """Resolve runtime-configurable online validation cap with safe bounds."""
@@ -3313,7 +3431,7 @@ class ChicagoEditor:
             return cached
 
         self._increment_online_lookup_metric("serper_requests")
-        response = requests.post(
+        response = get_http_session().post(
             self.SERPER_SEARCH_ENDPOINT,
             headers={
                 "X-API-KEY": api_key,
@@ -3439,7 +3557,7 @@ class ChicagoEditor:
 
         url = f"https://api.crossref.org/works/{quote(normalized_doi, safe='')}"
         self._increment_online_lookup_metric("crossref_requests")
-        response = requests.get(
+        response = get_http_session().get(
             url,
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
             timeout=self.ONLINE_VALIDATION_TIMEOUT_SECONDS,
@@ -3469,7 +3587,7 @@ class ChicagoEditor:
             return cached
 
         self._increment_online_lookup_metric("crossref_requests")
-        response = requests.get(
+        response = get_http_session().get(
             "https://api.crossref.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
             params={"rows": 5, "query.bibliographic": query},
@@ -3498,7 +3616,7 @@ class ChicagoEditor:
             return cached
 
         self._increment_online_lookup_metric("openalex_requests")
-        response = requests.get(
+        response = get_http_session().get(
             "https://api.openalex.org/works",
             headers={"Accept": "application/json", "User-Agent": "manuscript-editor/1.0"},
             params={"search": title, "per-page": 5},

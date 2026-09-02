@@ -620,20 +620,41 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         with open(quality_path, "r", encoding="utf-8") as handle:
             quality_source = handle.read()
         self.assertIn("python3 scripts/check_version_consistency.py", quality_source)
-        self.assertIn("node --check web/app-api.js", quality_source)
-        self.assertIn("node --check web/app-assistant.js", quality_source)
-        self.assertIn("node --check web/app-auth-admin.js", quality_source)
-        self.assertIn("node --check web/app-router.js", quality_source)
-        self.assertIn("node --check web/app-settings.js", quality_source)
-        self.assertIn("node --check web/app-settings-panel.js", quality_source)
-        self.assertIn("node --check web/admin/runtime.js", quality_source)
-        self.assertIn("node --check web/admin/audit.js", quality_source)
-        self.assertIn("node --check web/admin/users.js", quality_source)
-        self.assertIn("node --check web/admin/global-settings.js", quality_source)
-        self.assertIn("node --check web/admin/reference-diagnostics.js", quality_source)
-        self.assertIn("node --check web/admin/panel.js", quality_source)
-        self.assertIn("node --check web/pages/tasks.js", quality_source)
-        self.assertIn("node --check web/pages/task-detail.js", quality_source)
+        self.assertIn("python3 scripts/check_dependency_lock.py", quality_source)
+
+        # The syntax gate globs every shipped JS file rather than tracking a
+        # hand-maintained list, which previously left four modules unchecked.
+        self.assertIn("find web -name '*.js' -type f", quality_source)
+        self.assertIn('node --check "$js_file"', quality_source)
+
+        web_dir = os.path.join(os.path.dirname(__file__), "..", "web")
+        shipped_js = set()
+        for root, _dirs, files in os.walk(web_dir):
+            for name in files:
+                if name.endswith(".js"):
+                    shipped_js.add(os.path.relpath(os.path.join(root, name), web_dir))
+        for required in (
+            "app-api.js",
+            "app.js",
+            "app-state.js",
+            "app-preview.js",
+            "app-heal-bibliography.js",
+            "app-assistant.js",
+            "app-auth-admin.js",
+            "app-router.js",
+            "app-settings.js",
+            "app-settings-panel.js",
+            os.path.join("admin", "runtime.js"),
+            os.path.join("admin", "audit.js"),
+            os.path.join("admin", "users.js"),
+            os.path.join("admin", "journals.js"),
+            os.path.join("admin", "global-settings.js"),
+            os.path.join("admin", "reference-diagnostics.js"),
+            os.path.join("admin", "panel.js"),
+            os.path.join("pages", "tasks.js"),
+            os.path.join("pages", "task-detail.js"),
+        ):
+            self.assertIn(required, shipped_js, f"{required} is missing from web/ — the gate would silently skip it")
 
     def test_route_specific_page_modules_are_loaded_and_own_page_controls(self):
         status, tasks_html = self.client.request_text("GET", "/tasks")
@@ -823,7 +844,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
             },
         }
 
-        merged = webapp._apply_global_runtime_settings(request_options, runtime)
+        merged = webapp._apply_global_runtime_settings(request_options, runtime, is_admin=True)
 
         self.assertFalse(bool(merged.get("online_reference_validation")))
         self.assertFalse(bool(merged.get("online_reference_serper_fallback")))
@@ -832,6 +853,78 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertEqual(str((merged.get("ai") or {}).get("provider")), "gemini")
         self.assertEqual(str((merged.get("ai") or {}).get("model")), "gemini-1.5-flash")
         self.assertFalse(bool((merged.get("ai") or {}).get("section_wise")))
+
+    def test_non_admin_request_cannot_repoint_ai_provider_or_host(self):
+        """A user may ask for less work, never for a different network target."""
+        runtime = webapp._normalize_global_runtime_settings(
+            {
+                "editing": {
+                    "online_reference_validation": True,
+                    "online_reference_validation_admin_cap": 20,
+                    "auto_resolve_unresolved_references": True,
+                },
+                "ai": {
+                    "enabled": True,
+                    "provider": "ollama",
+                    "model": "llama3.1",
+                    "ollama_host": "http://localhost:11434",
+                    "gemini_api_key": "server-configured-key",
+                },
+            }
+        )
+        hostile_options = {
+            "online_reference_validation_admin_cap": 500,
+            "auto_resolve_unresolved_references": False,
+            "ai": {
+                "provider": "gemini",
+                "model": "attacker-model",
+                "ollama_host": "http://169.254.169.254",
+                "gemini_api_key": "",
+                "openrouter_api_key": "attacker-key",
+            },
+        }
+
+        merged = webapp._apply_global_runtime_settings(hostile_options, runtime, is_admin=False)
+        merged_ai = merged.get("ai") or {}
+
+        self.assertEqual(str(merged_ai.get("ollama_host")), "http://localhost:11434")
+        self.assertEqual(str(merged_ai.get("provider")), "ollama")
+        self.assertEqual(str(merged_ai.get("model")), "llama3.1")
+        self.assertEqual(str(merged_ai.get("openrouter_api_key")), "")
+        # A redacted key echoed back by the client must not wipe the server key.
+        self.assertEqual(str(merged_ai.get("gemini_api_key")), "server-configured-key")
+        self.assertEqual(int(merged.get("online_reference_validation_admin_cap")), 20)
+        self.assertTrue(bool(merged.get("auto_resolve_unresolved_references")))
+
+    def test_non_admin_request_may_still_reduce_work(self):
+        runtime = webapp._normalize_global_runtime_settings(
+            {
+                "editing": {"online_reference_validation": True, "online_reference_serper_fallback": True},
+                "ai": {"enabled": True, "provider": "ollama", "section_wise": True},
+            }
+        )
+        merged = webapp._apply_global_runtime_settings(
+            {
+                "online_reference_validation": False,
+                "online_reference_serper_fallback": False,
+                "ai": {"enabled": False, "section_wise": False},
+            },
+            runtime,
+            is_admin=False,
+        )
+        self.assertFalse(bool(merged.get("online_reference_validation")))
+        self.assertFalse(bool(merged.get("online_reference_serper_fallback")))
+        self.assertFalse(bool((merged.get("ai") or {}).get("enabled")))
+        self.assertFalse(bool((merged.get("ai") or {}).get("section_wise")))
+
+    def test_non_admin_cannot_enable_network_validation_an_admin_disabled(self):
+        runtime = webapp._normalize_global_runtime_settings(
+            {"editing": {"online_reference_validation": False}, "ai": {"enabled": True}}
+        )
+        merged = webapp._apply_global_runtime_settings(
+            {"online_reference_validation": True}, runtime, is_admin=False
+        )
+        self.assertFalse(bool(merged.get("online_reference_validation")))
 
     def test_upload_process_and_download_round_trip(self):
         self._force_offline_runtime_settings()
@@ -1008,7 +1101,7 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
 
         attempts = {"count": 0}
 
-        def _mocked_process_task(_context, _task, _options):
+        def _mocked_process_task(_context, _task, _options, task_run_id=""):
             attempts["count"] += 1
             if attempts["count"] == 1:
                 raise RuntimeError("timeout while contacting provider")
@@ -1791,21 +1884,26 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn('id="admin-ai-provider-label"', html)
         self.assertIn('role="group" aria-labelledby="admin-ai-provider-label"', html)
 
-        index_path = os.path.join(os.path.dirname(__file__), "..", "web", "index.html")
-        with open(index_path, "r", encoding="utf-8") as handle:
-            index_source = handle.read()
-        self.assertIn('id="admin-editing-group-label"', index_source)
-        self.assertIn('role="group" aria-labelledby="admin-editing-group-label"', index_source)
-        self.assertIn('id="admin-ollama-transport-label"', index_source)
-        self.assertIn('role="group" aria-labelledby="admin-ollama-transport-label"', index_source)
-        self.assertIn('id="admin-advanced-ai-label"', index_source)
-        self.assertIn('role="group" aria-labelledby="admin-advanced-ai-label"', index_source)
+        # The admin panel now lives in one shared fragment, so these controls are
+        # asserted on the rendered shells - every route must show the same surface.
+        for route in ("/admin-dashboard", "/tasks"):
+            route_status, route_html = self.client.request_text("GET", route)
+            self.assertEqual(route_status, 200, route)
+            for marker in (
+                'id="admin-editing-group-label"',
+                'role="group" aria-labelledby="admin-editing-group-label"',
+                'id="admin-ollama-transport-label"',
+                'role="group" aria-labelledby="admin-ollama-transport-label"',
+                'id="admin-advanced-ai-label"',
+                'role="group" aria-labelledby="admin-advanced-ai-label"',
+            ):
+                self.assertIn(marker, route_html, f"{marker} missing from {route}")
 
-        task_detail_path = os.path.join(os.path.dirname(__file__), "..", "web", "task_detail.html")
-        with open(task_detail_path, "r", encoding="utf-8") as handle:
-            task_detail_source = handle.read()
-        self.assertIn('id="admin-advanced-ai-label"', task_detail_source)
-        self.assertIn('role="group" aria-labelledby="admin-advanced-ai-label"', task_detail_source)
+        fragment_path = os.path.join(os.path.dirname(__file__), "..", "web", "fragments", "admin_panel.html")
+        with open(fragment_path, "r", encoding="utf-8") as handle:
+            fragment_source = handle.read()
+        self.assertIn('id="admin-ollama-transport-label"', fragment_source)
+        self.assertIn('id="admin-advanced-ai-label"', fragment_source)
 
         runtime_path = os.path.join(os.path.dirname(__file__), "..", "web", "admin", "runtime.js")
         with open(runtime_path, "r", encoding="utf-8") as handle:
@@ -1837,6 +1935,178 @@ class AuthenticatedWebAppApiTests(unittest.TestCase):
         self.assertIn("Saving global settings...", admin_global_source)
         self.assertIn("Global settings loaded.", admin_global_source)
         self.assertIn("closest('.password-field')", admin_global_source)
+
+    def test_process_status_returns_a_summary_not_a_full_task(self):
+        """The poll payload must never look like a full task.
+
+        The frontend hydrator overwrites document text and every report from
+        whatever it is handed; feeding it this payload used to blank the editor.
+        """
+        self._force_offline_runtime_settings()
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "poll.txt", "content": "The colour of the sample."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload.get("success"))
+
+        self.assertIn("task_summary", payload, "process-status must expose an explicit task_summary key")
+        summary = payload["task_summary"]
+        self.assertEqual(payload.get("task"), summary, "the deprecated 'task' alias must match task_summary")
+        for absent in ("original_text", "corrected_text", "full_corrected_text", "reports", "options"):
+            self.assertNotIn(
+                absent,
+                summary,
+                f"process-status leaked '{absent}' - callers must fetch GET /api/tasks/<id> for content",
+            )
+        self.assertIn("status", summary)
+        self.assertIn("id", summary)
+
+    def test_process_status_reports_progress_from_the_store(self):
+        """Progress must survive a worker that knows nothing about the job."""
+        self._force_offline_runtime_settings()
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "progress.txt", "content": "Sample text."},
+        )
+        task_id = str(payload.get("task_id") or "")
+
+        run = webapp._STORE.create_task_run(
+            task_id=task_id,
+            user_id=webapp._STORE.get_task_for_user(task_id=task_id, user_id="", is_admin=True)["user_id"],
+            status="PENDING",
+            options={},
+            job_id="job-from-another-worker",
+        )
+        webapp._STORE.update_task_run(
+            run_id=run["id"],
+            user_id="",
+            is_admin=True,
+            status="RUNNING",
+            progress_percent=63.5,
+            stage="Analyzing references",
+            tokens_consumed=999,
+            estimated_seconds_remaining=12,
+        )
+
+        status, payload = self.client.request("GET", f"/api/tasks/{task_id}/process-status")
+        self.assertEqual(status, 200)
+        job = payload.get("job") or {}
+        self.assertTrue(job.get("from_store"), "progress was not reconstructed from task_runs")
+        self.assertEqual(job.get("id"), "job-from-another-worker")
+        self.assertEqual(job.get("status"), "RUNNING")
+        self.assertAlmostEqual(float(job.get("progress_percent")), 63.5, places=3)
+        self.assertEqual(job.get("stage"), "Analyzing references")
+        self.assertEqual(int(job.get("tokens_consumed")), 999)
+        self.assertIsNone(job.get("result"), "the store-backed view must not carry a result payload")
+
+    def test_second_async_run_is_rejected_while_one_is_active(self):
+        self._force_offline_runtime_settings()
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "guard.txt", "content": "Sample text."},
+        )
+        task_id = str(payload.get("task_id") or "")
+        owner_id = webapp._STORE.get_task_for_user(task_id=task_id, user_id="", is_admin=True)["user_id"]
+
+        webapp._STORE.create_task_run(
+            task_id=task_id, user_id=owner_id, status="PENDING", options={}, job_id="in-flight"
+        )
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {"async": True, "options": self._offline_processing_options()},
+        )
+        self.assertEqual(status, 409)
+        self.assertEqual(payload.get("error_code"), "TASK_ALREADY_PROCESSING")
+        self.assertIn("task_run", payload)
+
+        status, payload = self.client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {"async": True, "force": True, "options": self._offline_processing_options()},
+        )
+        self.assertEqual(status, 202, "force=true must be able to override the guard")
+
+    def test_admin_can_process_another_users_task(self):
+        self._force_offline_runtime_settings()
+        self._login("writer@conwiz.in")
+        status, payload = self.client.request(
+            "POST",
+            "/api/tasks/upload-text",
+            {"file_name": "owned.txt", "content": "The colour of the sample."},
+        )
+        self.assertEqual(status, 200)
+        task_id = str(payload.get("task_id") or "")
+
+        admin_client = WsgiTestClient(webapp.app)
+        status, _ = admin_client.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+
+        status, payload = admin_client.request(
+            "POST",
+            f"/api/tasks/{task_id}/process",
+            {"options": self._offline_processing_options()},
+        )
+        self.assertEqual(status, 200, f"admin processing another user's task failed: {payload}")
+        self.assertTrue(payload.get("success"))
+
+        owned = webapp._STORE.get_task_for_user(task_id=task_id, user_id="", is_admin=True)
+        self.assertEqual(owned["status"], "PROCESSED")
+        self.assertTrue(owned["corrected_text"])
+
+    def test_ai_temperature_round_trips_through_admin_settings(self):
+        admin = WsgiTestClient(webapp.app)
+        status, _ = admin.request("POST", "/api/auth/google-login", {"id_token": "test:amit@conwiz.in"})
+        self.assertEqual(status, 200)
+
+        status, payload = admin.request("GET", "/api/admin/global-settings")
+        self.assertEqual(status, 200)
+        self.assertIn("temperature", payload["settings"]["ai"])
+
+        status, payload = admin.request(
+            "POST", "/api/admin/global-settings", {"settings": {"ai": {"temperature": 0.45}}}
+        )
+        self.assertEqual(status, 200)
+        self.assertAlmostEqual(payload["settings"]["ai"]["temperature"], 0.45, places=4)
+
+        status, payload = admin.request("GET", "/api/admin/global-settings")
+        self.assertAlmostEqual(payload["settings"]["ai"]["temperature"], 0.45, places=4)
+
+        # And it reaches the processing options the worker actually runs on.
+        merged = webapp._apply_global_runtime_settings({}, webapp._read_global_runtime_settings())
+        self.assertAlmostEqual(merged["ai"]["temperature"], 0.45, places=4)
+
+    def test_ai_temperature_is_clamped_and_defaults_safely(self):
+        for supplied, expected in ((5.0, 1.0), (-2.0, 0.0), ("hot", webapp.AI_TEMPERATURE_DEFAULT)):
+            with self.subTest(supplied=supplied):
+                normalized = webapp._normalize_global_runtime_settings({"ai": {"temperature": supplied}})
+                self.assertAlmostEqual(normalized["ai"]["temperature"], expected, places=4)
+
+    def test_non_admin_cannot_change_ai_temperature(self):
+        runtime = webapp._normalize_global_runtime_settings({"ai": {"temperature": 0.1}})
+        merged = webapp._apply_global_runtime_settings({"ai": {"temperature": 1.0}}, runtime, is_admin=False)
+        self.assertAlmostEqual(merged["ai"]["temperature"], 0.1, places=4)
+        merged_admin = webapp._apply_global_runtime_settings({"ai": {"temperature": 1.0}}, runtime, is_admin=True)
+        self.assertAlmostEqual(merged_admin["ai"]["temperature"], 1.0, places=4)
+
+    def test_admin_temperature_control_is_present_on_every_shell(self):
+        for route in ("/tasks", "/admin-dashboard"):
+            status, html = self.client.request_text("GET", route)
+            self.assertEqual(status, 200)
+            with self.subTest(route=route):
+                self.assertIn('id="admin-setting-ai-temperature"', html)
 
     def test_admin_reference_validation_diagnostics_requires_admin(self):
         self._login("member@conwiz.in")

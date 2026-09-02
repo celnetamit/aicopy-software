@@ -61,7 +61,11 @@ def register_legacy_routes(app, deps):
         options = payload.get("options", {})
         if not isinstance(options, dict):
             options = {}
-        options = deps.apply_global_runtime_settings(options, deps.read_global_runtime_settings())
+        options = deps.apply_global_runtime_settings(
+            options,
+            deps.read_global_runtime_settings(),
+            is_admin=context.role == deps.role_admin,
+        )
 
         task_id = str(payload.get("task_id", "") or "").strip()
         source_text = str(payload.get("source_text", "") or "")

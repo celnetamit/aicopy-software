@@ -4,6 +4,8 @@ import os
 import re
 import json
 import difflib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import html
 import subprocess
 import tempfile
@@ -22,6 +24,29 @@ from docx.shared import RGBColor, Pt, Inches
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from chicago_editor import ChicagoEditor
+
+
+def _env_int(key: str, default_value: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(os.getenv(key, "") or default_value)
+    except Exception:
+        parsed = default_value
+    return max(min_value, min(max_value, parsed))
+
+
+# Section prompts are independent, so the provider round trips can overlap.
+# Local Ollama is usually one GPU; hosted providers tolerate more.
+AI_SECTION_CONCURRENCY_LOCAL = _env_int("AI_SECTION_CONCURRENCY_LOCAL", 2, 1, 16)
+AI_SECTION_CONCURRENCY_HOSTED = _env_int("AI_SECTION_CONCURRENCY_HOSTED", 4, 1, 16)
+AI_SECTION_CONCURRENCY_MAX = _env_int("AI_SECTION_CONCURRENCY_MAX", 8, 1, 32)
+
+# One sampling temperature for every provider. Copyediting wants reproducibility,
+# and `_select_best_correction` scores candidates on how far they drift from the
+# source - so a higher temperature does not just vary wording, it makes sections
+# more likely to be rejected in favour of the rules-only baseline.
+AI_TEMPERATURE_DEFAULT = 0.1
+AI_TEMPERATURE_MIN = 0.0
+AI_TEMPERATURE_MAX = 1.0
 
 
 def _coerce_float(value, fallback: float, min_value: float, max_value: float) -> float:
@@ -81,6 +106,12 @@ class DocumentProcessor:
         self.gemini_model = "gemini-1.5-flash"
         self.openrouter_model = "openrouter/auto"
         self.agent_router_model = "deepseek-v3.1"
+        self.ai_temperature = _coerce_float(
+            os.getenv("AI_TEMPERATURE"),
+            AI_TEMPERATURE_DEFAULT,
+            AI_TEMPERATURE_MIN,
+            AI_TEMPERATURE_MAX,
+        )
         self.ollama_generate_timeout_seconds = _coerce_float(
             os.getenv("MANUSCRIPT_EDITOR_OLLAMA_GENERATE_TIMEOUT_SECONDS"),
             60.0,
@@ -673,6 +704,69 @@ Manuscript:
 
 Final consistent manuscript:"""
 
+    def _resolve_section_concurrency(self, options: Dict, settings: Dict, section_count: int) -> int:
+        """Resolve how many section prompts may be in flight at once.
+
+        Defaults are provider-aware: a self-hosted Ollama box is usually one GPU
+        and does not benefit from deep concurrency, while hosted providers do.
+        Set ``ai.section_concurrency`` to 1 for exactly reproducible runs.
+        """
+        ai_options = options.get("ai", {}) if isinstance(options, dict) else {}
+        if not isinstance(ai_options, dict):
+            ai_options = {}
+
+        provider = str(settings.get("provider") or "ollama").strip().lower()
+        default_value = AI_SECTION_CONCURRENCY_LOCAL if provider == "ollama" else AI_SECTION_CONCURRENCY_HOSTED
+        raw_value = ai_options.get("section_concurrency", default_value)
+        try:
+            parsed = int(raw_value)
+        except Exception:
+            parsed = default_value
+        return max(1, min(AI_SECTION_CONCURRENCY_MAX, parsed, max(1, int(section_count))))
+
+    def _fetch_section_candidates(
+        self,
+        prompts: List[str],
+        settings: Dict,
+        concurrency: int,
+    ) -> List[Optional[str]]:
+        """Run section prompts through the provider, preserving input order.
+
+        Only the provider round trip is parallelized. Candidate post-processing
+        and selection stay on the calling thread so no shared editor state is
+        touched concurrently.
+        """
+        total = len(prompts)
+        results: List[Optional[str]] = [None] * total
+
+        if concurrency <= 1 or total <= 1:
+            for index, prompt in enumerate(prompts):
+                self._report_progress(
+                    progress_percent=30.0 + (index / total) * 45.0,
+                    stage=f"Analyzing manuscript section {index + 1} of {total} with AI...",
+                    estimated_seconds_remaining=(total - index) * 4,
+                )
+                results[index] = self._invoke_ai_provider(prompt, settings)
+            return results
+
+        completed = {"count": 0}
+        counter_lock = threading.Lock()
+
+        def run_one(index: int) -> None:
+            results[index] = self._invoke_ai_provider(prompts[index], settings)
+            with counter_lock:
+                completed["count"] += 1
+                done = completed["count"]
+            self._report_progress(
+                progress_percent=30.0 + (done / total) * 45.0,
+                stage=f"Analyzing manuscript sections with AI ({done} of {total} complete)...",
+                estimated_seconds_remaining=max(0, int(((total - done) * 4) / max(1, concurrency))),
+            )
+
+        with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ai-section") as pool:
+            list(pool.map(run_one, range(total)))
+        return results
+
     def _call_ai_editor_sectioned(self, original: str, rules_corrected: str, options: Dict, settings: Dict) -> Optional[str]:
         """Run section-wise AI correction with safety checks and optional global pass."""
         chunks = self._split_for_section_analysis(original, rules_corrected, options)
@@ -724,23 +818,31 @@ Final consistent manuscript:"""
             f"consistency_tolerance={consistency_tolerance}"
         )
 
-        for idx, chunk in enumerate(chunks, start=1):
-            progress_val = 30.0 + ((idx - 1) / total_chunks) * 55.0
-            est_seconds = (total_chunks - idx + 1) * 4
-            self._report_progress(
-                progress_percent=progress_val,
-                stage=f"Analyzing manuscript section {idx} of {total_chunks} with AI...",
-                estimated_seconds_remaining=est_seconds
-            )
-            prompt = self._build_edit_prompt(
+        section_concurrency = self._resolve_section_concurrency(options, settings, total_chunks)
+        prompts = [
+            self._build_edit_prompt(
                 chunk["original"],
                 chunk["baseline"],
                 options,
                 stage="section",
                 section_index=idx,
-                section_total=total_chunks
+                section_total=total_chunks,
             )
-            ai_chunk = self._invoke_ai_provider(prompt, settings)
+            for idx, chunk in enumerate(chunks, start=1)
+        ]
+        print(f"[AI] section concurrency={section_concurrency} provider={settings.get('provider')}")
+        ai_candidates = self._fetch_section_candidates(prompts, settings, section_concurrency)
+        self._last_processing_audit["section_concurrency"] = section_concurrency
+
+        # Selection and bookkeeping stay sequential so decisions, outputs and
+        # fallback counts are identical to the serial implementation.
+        for idx, chunk in enumerate(chunks, start=1):
+            self._report_progress(
+                progress_percent=75.0 + (idx / total_chunks) * 10.0,
+                stage=f"Selecting best text for section {idx} of {total_chunks}...",
+                estimated_seconds_remaining=max(0, total_chunks - idx),
+            )
+            ai_chunk = ai_candidates[idx - 1]
             if ai_chunk:
                 ai_chunk = self._postprocess_ai_output(ai_chunk, options)
             selected_chunk, used_ai, decision = self._choose_candidate(
@@ -937,6 +1039,12 @@ Final consistent manuscript:"""
         return {
             "enabled": bool(ai_options.get("enabled", True)),
             "provider": provider,
+            "temperature": _coerce_float(
+                ai_options.get("temperature", self.ai_temperature),
+                self.ai_temperature,
+                AI_TEMPERATURE_MIN,
+                AI_TEMPERATURE_MAX,
+            ),
             "ollama_host": str(ai_options.get("ollama_host", self.ollama_host)).strip() or self.ollama_host,
             "model": model or default_model,
             "gemini_api_key": gemini_api_key,
@@ -1077,6 +1185,12 @@ Final consistent manuscript:"""
     ):
         timeout = float(settings.get("ollama_generate_timeout_seconds", self.ollama_generate_timeout_seconds))
         retry_count = _coerce_int(settings.get("ollama_retry_count", self.ollama_retry_count), self.ollama_retry_count, 0, 3)
+        temperature = _coerce_float(
+            settings.get("temperature", self.ai_temperature),
+            self.ai_temperature,
+            AI_TEMPERATURE_MIN,
+            AI_TEMPERATURE_MAX,
+        )
         backoff_seconds = _coerce_float(
             settings.get("ollama_retry_backoff_seconds", self.ollama_retry_backoff_seconds),
             self.ollama_retry_backoff_seconds,
@@ -1087,7 +1201,7 @@ Final consistent manuscript:"""
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": 0.1},
+            "options": {"temperature": temperature},
         }
 
         attempts = retry_count + 1
@@ -1120,6 +1234,12 @@ Final consistent manuscript:"""
 
     def _call_gemini_editor(self, prompt: str, settings: Dict) -> Optional[str]:
         """Call Gemini AI for enhanced editing."""
+        temperature = _coerce_float(
+            settings.get("temperature", self.ai_temperature),
+            self.ai_temperature,
+            AI_TEMPERATURE_MIN,
+            AI_TEMPERATURE_MAX,
+        )
         if not settings["gemini_api_key"]:
             self._warn_once("Gemini API key not set; falling back to rule-based editing.")
             return None
@@ -1132,7 +1252,7 @@ Final consistent manuscript:"""
 
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.1},
+            "generationConfig": {"temperature": temperature},
         }
 
         try:
@@ -1159,6 +1279,12 @@ Final consistent manuscript:"""
 
     def _call_openrouter_editor(self, prompt: str, settings: Dict) -> Optional[str]:
         """Call OpenRouter-compatible chat completion API."""
+        temperature = _coerce_float(
+            settings.get("temperature", self.ai_temperature),
+            self.ai_temperature,
+            AI_TEMPERATURE_MIN,
+            AI_TEMPERATURE_MAX,
+        )
         if not settings["openrouter_api_key"]:
             self._warn_once("OpenRouter API key not set; falling back to rule-based editing.")
             return None
@@ -1187,7 +1313,7 @@ Final consistent manuscript:"""
                 },
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.3,
+            "temperature": temperature,
         }
 
         try:
@@ -1214,6 +1340,12 @@ Final consistent manuscript:"""
 
     def _call_agent_router_editor(self, prompt: str, settings: Dict) -> Optional[str]:
         """Call AgentRouter's OpenAI-compatible chat completion API."""
+        temperature = _coerce_float(
+            settings.get("temperature", self.ai_temperature),
+            self.ai_temperature,
+            AI_TEMPERATURE_MIN,
+            AI_TEMPERATURE_MAX,
+        )
         if not settings["agent_router_api_key"]:
             self._warn_once("AgentRouter token not set; falling back to rule-based editing.")
             return None
@@ -1233,7 +1365,7 @@ Final consistent manuscript:"""
                 },
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.3,
+            "temperature": temperature,
         }
 
         try:
@@ -2763,10 +2895,87 @@ Corrected manuscript:"""
         doc.save(output_path)
         self._current_doc = None
 
+    @staticmethod
+    def _split_lines_keepends(text: str) -> List[str]:
+        """Split on newlines while keeping terminators, so join() is lossless."""
+        parts = str(text or "").split("\n")
+        return [part + "\n" for part in parts[:-1]] + [parts[-1]]
+
+    def _iter_line_scoped_diff_segments(self, original: str, corrected: str):
+        """Yield (segment_type, text) using a line-scoped diff.
+
+        Diffing the whole document as one flat token stream made this
+        quadratic-to-cubic in document size (26 s on a 54 KB manuscript). Matching
+        at line level first, then refining only inside changed line pairs, bounds
+        every inner matcher to a single line while preserving the two properties
+        a redline must satisfy:
+
+            equal + delete segments reconstruct ``original`` exactly
+            equal + insert segments reconstruct ``corrected`` exactly
+        """
+        original_units = self._split_lines_keepends(original)
+        corrected_units = self._split_lines_keepends(corrected)
+        original_lines = [unit[:-1] if unit.endswith("\n") else unit for unit in original_units]
+        corrected_lines = [unit[:-1] if unit.endswith("\n") else unit for unit in corrected_units]
+
+        matcher = difflib.SequenceMatcher(a=original_lines, b=corrected_lines, autojunk=False)
+
+        for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+            if opcode == "equal":
+                for offset in range(i2 - i1):
+                    old_unit = original_units[i1 + offset]
+                    new_unit = corrected_units[j1 + offset]
+                    if old_unit == new_unit:
+                        if old_unit:
+                            yield "equal", old_unit
+                        continue
+                    # Line bodies match; only the trailing newline differs
+                    # (first/last line of the document).
+                    common_length = len(os.path.commonprefix([old_unit, new_unit]))
+                    if common_length:
+                        yield "equal", old_unit[:common_length]
+                    if old_unit[common_length:]:
+                        yield "delete", old_unit[common_length:]
+                    if new_unit[common_length:]:
+                        yield "insert", new_unit[common_length:]
+                continue
+
+            if opcode == "insert":
+                for offset in range(j1, j2):
+                    if corrected_units[offset]:
+                        yield "insert", corrected_units[offset]
+                continue
+
+            if opcode == "delete":
+                for offset in range(i1, i2):
+                    if original_units[offset]:
+                        yield "delete", original_units[offset]
+                continue
+
+            left = original_units[i1:i2]
+            right = corrected_units[j1:j2]
+            for index in range(max(len(left), len(right))):
+                old_unit = left[index] if index < len(left) else ""
+                new_unit = right[index] if index < len(right) else ""
+                if not old_unit and not new_unit:
+                    continue
+                if not old_unit:
+                    yield "insert", new_unit
+                    continue
+                if not new_unit:
+                    yield "delete", old_unit
+                    continue
+                if self._should_use_simple_replace_diff(old_unit, new_unit):
+                    # Heavy rewrite: word-level marks would be unreadable noise.
+                    yield "delete", old_unit
+                    yield "insert", new_unit
+                    continue
+                yield from self._iter_diff_segments(old_unit, new_unit)
+
     def build_redline_html(self, original: str, corrected: str) -> str:
         """Build redline HTML preview with Word-style red change markup."""
         chunks = []
-        for segment_type, segment_text in self._iter_diff_segments(original, corrected):
+        for segment_type, segment_text in self._iter_line_scoped_diff_segments(original, corrected):
             escaped = self._build_annotated_html(segment_text, include_foreign=False)
             if segment_type == "delete":
                 chunks.append(f'<span class="redline-del">{escaped}</span>')
@@ -3441,10 +3650,20 @@ Corrected manuscript:"""
         }
         return mapping.get(str(group or ""), "Apply conservative editorial consistency improvements.")
 
-    def build_strict_cmos_issues_summary(self, original: str, corrected: str, options: Optional[Dict] = None) -> Dict:
-        """Return compact CMOS-focused counts for quick post-run QA."""
+    def build_strict_cmos_issues_summary(
+        self,
+        original: str,
+        corrected: str,
+        options: Optional[Dict] = None,
+        corrections_report: Optional[Dict] = None,
+    ) -> Dict:
+        """Return compact CMOS-focused counts for quick post-run QA.
+
+        Pass ``corrections_report`` when the caller already built one; otherwise
+        this recomputes the full line diff a second time for the same inputs.
+        """
         safe_options = options if isinstance(options, dict) else {}
-        report = self.build_corrections_report(original or "", corrected or "")
+        report = corrections_report if isinstance(corrections_report, dict) else self.build_corrections_report(original or "", corrected or "")
         counts = report.get("counts", {}) if isinstance(report, dict) else {}
         safe_counts = counts if isinstance(counts, dict) else {}
 
@@ -3676,44 +3895,3 @@ Corrected manuscript:"""
                         yield "delete", deleted
                     if inserted:
                         yield "insert", inserted
-
-    def _compute_diff(self, original: str, corrected: str) -> List[Dict]:
-        """Compute differences between original and corrected."""
-        corrections = []
-        orig_words = original.split()
-        corr_words = corrected.split()
-
-        for i, (orig, corr) in enumerate(zip(orig_words, corr_words)):
-            if orig != corr:
-                corrections.append({
-                    'position': i,
-                    'original': orig,
-                    'corrected': corr,
-                    'type': 'replacement'
-                })
-
-        return corrections
-
-    def _create_run_with_format(self, doc, para, text, format_dict):
-        """Create a run with specific formatting."""
-        run = para.add_run(text + ' ')
-        if format_dict.get('strikethrough'):
-            run.font.strike = True
-        if format_dict.get('underline'):
-            run.font.underline = True
-        if format_dict.get('color'):
-            run.font.color.rgb = format_dict['color']
-        if format_dict.get('highlight'):
-            run.font.highlight_color = format_dict['highlight']
-        return run
-
-    def _add_formatted_run(self, doc, run, text, **kwargs):
-        """Add a formatted run to a paragraph."""
-        run = doc.add_paragraph().add_run(text)
-        if kwargs.get('strikethrough'):
-            run.font.strike = True
-        if kwargs.get('underline'):
-            run.font.underline = True
-        if kwargs.get('color'):
-            run.font.color.rgb = kwargs['color']
-        return run

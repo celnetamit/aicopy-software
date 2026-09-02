@@ -250,8 +250,68 @@ function buildProcessingOptionsFromRuntimeSettings() {
     return {};
 }
 
+function taskPayloadHasFullContent(task) {
+    if (!task || typeof task !== 'object') {
+        return false;
+    }
+    // A full task payload from GET /api/tasks/<id> always carries these keys.
+    // A task *summary* (from /process-status or the task list) never does.
+    return Object.prototype.hasOwnProperty.call(task, 'original_text')
+        || Object.prototype.hasOwnProperty.call(task, 'reports');
+}
+
+function applyTaskSummaryToState(task) {
+    // Safe subset: never touches document text or reports.
+    if (!task || typeof task !== 'object') {
+        return;
+    }
+    if (task.id) {
+        authState.fileContent.taskId = String(task.id);
+    }
+    if (task.file_name) {
+        authState.fileContent.fileName = String(task.file_name);
+        const fileNameEl = document.getElementById('file-name');
+        if (fileNameEl) fileNameEl.textContent = authState.fileContent.fileName;
+    }
+    if (task.source_type) {
+        authState.fileContent.sourceType = String(task.source_type);
+    }
+    appAuth.syncWindowFileContent();
+}
+
+function fetchFullTask(taskId, onLoaded, onFailed) {
+    const safeTaskId = String(taskId || '').trim();
+    if (!safeTaskId) {
+        if (typeof onFailed === 'function') onFailed();
+        return false;
+    }
+    const called = callApiOrEel(
+        (api) => api.tasks && typeof api.tasks.get === 'function' ? api.tasks.get(safeTaskId) : null,
+        'get_task',
+        [safeTaskId],
+        function (response) {
+            if (!response || !response.success || !response.task) {
+                if (typeof onFailed === 'function') onFailed();
+                return;
+            }
+            applyTaskDetailsToState(response.task);
+            if (typeof onLoaded === 'function') onLoaded(response.task);
+        }
+    );
+    if (!called && typeof onFailed === 'function') {
+        onFailed();
+    }
+    return called;
+}
+
 function applyTaskDetailsToState(task) {
     if (!task || typeof task !== 'object') {
+        return;
+    }
+    if (!taskPayloadHasFullContent(task)) {
+        // Guard: a summary was passed where a full task was expected. Applying it
+        // would blank the loaded document, its redline and every report.
+        applyTaskSummaryToState(task);
         return;
     }
     const reports = task.reports && typeof task.reports === 'object' ? task.reports : {};
@@ -752,6 +812,14 @@ function refreshAdminAudit() {
     return undefined;
 }
 
+function refreshAdminErrors() {
+    const errorsModule = appAuth.adminErrors || {};
+    if (typeof errorsModule.refreshAdminErrors === 'function') {
+        return errorsModule.refreshAdminErrors();
+    }
+    return undefined;
+}
+
 function renderAdminReferenceValidationDiagnostics(payload) {
     const referenceModule = appAuth.adminReferenceDiagnostics || {};
     if (typeof referenceModule.renderAdminReferenceValidationDiagnostics === 'function') {
@@ -872,6 +940,9 @@ appAuth.authAdmin = {
     refreshRuntimeSettings,
     buildProcessingOptionsFromRuntimeSettings,
     applyTaskDetailsToState,
+    applyTaskSummaryToState,
+    taskPayloadHasFullContent,
+    fetchFullTask,
     loadTaskIntoEditor,
     hydrateCurrentRouteTaskIfNeeded,
     ensureGoogleSigninButton,
@@ -896,6 +967,7 @@ appAuth.authAdmin = {
     saveAdminGlobalSettings,
     refreshAdminUsers,
     refreshAdminAudit,
+    refreshAdminErrors,
     renderAdminReferenceValidationDiagnostics,
     refreshAdminReferenceValidationDiagnostics,
     resetAdminReferenceValidationDiagnostics,

@@ -284,6 +284,15 @@
             auditEvents: function (query) {
                 return getJson('/api/admin/audit-events' + buildQuery(query || {}));
             },
+            errorEvents: function (query) {
+                return getJson('/api/admin/error-events' + buildQuery(query || {}));
+            },
+            errorEvent: function (eventId) {
+                return getJson('/api/admin/error-events/' + encodeURIComponent(eventId));
+            },
+            purgeErrorEvents: function (olderThanDays) {
+                return postJson('/api/admin/error-events/purge', { older_than_days: Number(olderThanDays || 0) });
+            },
             referenceValidationDiagnostics: function () {
                 return getJson('/api/admin/reference-validation-diagnostics');
             },
