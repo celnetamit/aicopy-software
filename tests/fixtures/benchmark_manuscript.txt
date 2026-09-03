@@ -1,0 +1,70 @@
+Photoluminescent Behaviour of Core-Shell Quantum Dots Under Sustained Thermal Load
+
+Correspondence: r.mehta@example-university.edu
+
+Abstract
+
+We report on the photoluminescent behaviour of CdSe/ZnS core-shell quantum dots subjected to sustained thermal load over twenty five heating cycles . The colour purity of emission was characterised by full width at half maximum, and quantum yield was measured against a rhodamine 6G standard [1]. Our results indicate that shell thickness is the dominant predictor of thermal resilience, and that quantum-dot ensembles with shells exceeding four monolayers retain over 80 % of initial quantum yield after prolonged exposure [2,3]. These findings have direct implications for the design of QD-based display backlights, where operating temperatures routinely exceed 350 K.
+
+Introduction
+
+Semiconductor nanocrystals, commonly referred to as quantum dots, have attracted sustained attention across the display, photovoltaic and biomedical imaging communities over the past two decades. Their principal advantage over conventional phosphors lies in the tunability of emission wavelength through particle size alone, a consequence of quantum confinement in all three spatial dimensions [4]. A 3 nm CdSe particle emits in the green region of the visible spectrum, whereas a 6 nm particle of identical composition emits in the deep red. This size-tunability, combined with narrow emission linewidths, makes quantum dots attractive wherever colour purity matters.
+
+The practical difficulty has always been stability. Bare CdSe cores are prone to surface oxidation, and the resulting trap states quench emission rapidly under ambient conditions. The standard mitigation is epitaxial overgrowth of a wider-bandgap shell material, most commonly ZnS, which passivates surface states and confines the exciton to the core [5]. Shell growth is not without cost: lattice mismatch between CdSe and ZnS is approximately 12 %, and thick shells accumulate strain that can itself introduce defects. The optimal shell thickness is therefore a compromise, and the literature has not converged on a single recommendation.
+
+Thermal stability has received comparatively little systematic attention. Most published stability studies analyse photostability under continuous illumination at room temperature, which is a poor proxy for the thermal cycling that a display backlight actually experiences [6]. Where thermal studies do exist, they typically report a single heating ramp rather than repeated cycling, and they seldom characterise the ensemble after return to ambient temperature. The distinction matters, because reversible thermal quenching and irreversible degradation have quite different engineering consequences.
+
+Methods
+
+Core-shell nanocrystals were synthesised by a modified hot-injection route following the procedure of Nakamura and colleagues, with modifications to the shell growth stage described below [7]. Cadmium oxide and selenium powder were used as received. Trioctylphosphine oxide served as both solvent and coordinating ligand. Core growth was arrested by rapid cooling once the first excitonic absorption feature reached the target wavelength, monitored in situ by fibre-coupled absorption spectroscopy.
+
+Shell overgrowth was performed by successive ionic layer adsorption and reaction. Zinc and sulphur precursors were introduced alternately at 220 degrees celsius, with a 15 minute equilibration between additions. Shell thickness was controlled by the number of deposition cycles and verified by transmission electron microscopy on a sample of at least two hundred particles per batch. Four batches were prepared, with nominal shell thicknesses of two, four, six and eight monolayers.
+
+Thermal cycling was performed in a nitrogen-purged cell to exclude oxidative contributions. Each cycle consisted of a ramp from 298 K to 423 K at 5 K per minute, a thirty minute hold, and a passive cool to ambient. Photoluminescence spectra were recorded at ambient temperature before the first cycle and after each subsequent cycle, so that reported quantum yields reflect irreversible change rather than reversible thermal quenching. Excitation was provided by a 405 nm diode laser attenuated to avoid saturation.
+
+Results
+
+The two-monolayer sample degraded rapidly. Quantum yield fell from an initial value of 68 % to below 20 % within eight cycles, and the emission peak broadened by 11 nm over the same interval. Transmission electron microscopy of the cycled sample revealed substantial particle aggregation, which we attribute to ligand desorption at elevated temperature followed by irreversible fusion of adjacent particles.
+
+The four-monolayer and six-monolayer samples behaved similarly to one another and markedly better than the thin-shell case. Both retained above 80 % of initial quantum yield through the full twenty five cycles, and peak broadening was limited to under 3 nm. We observed no measurable shift in emission wavelength, indicating that the core dimension was preserved. The similarity between these two samples suggests that the benefit of additional shell material saturates once the exciton is adequately confined.
+
+The eight-monolayer sample showed an unexpected reversal. Initial quantum yield was lower than all other batches at 54 %, and although the relative retention was comparable to the mid-thickness samples, the absolute performance was inferior throughout. We interpret this as evidence of strain-induced defect formation during shell growth, consistent with the lattice mismatch argument advanced by earlier workers [8]. The result reinforces the view that shell thickness must be optimised rather than maximised.
+
+Spectral linewidth evolution followed a different trajectory from quantum yield. Whereas yield loss in the thin-shell sample was monotonic, linewidth broadening showed a pronounced knee at the sixth cycle, after which the rate of broadening roughly tripled . We interpret the knee as the onset of bulk aggregation rather than of individual particle damage, since the two processes should broaden the ensemble distribution at very different rates. Supporting this reading, the broadened spectra could not be fitted by a single Gaussian and required a two-component fit throughout the post-knee interval.
+
+Time-resolved measurements were performed on the four-monolayer sample before and after cycling to determine whether the residual yield loss reflected a change in radiative or non-radiative rate. The photoluminescence decay was fitted with a biexponential model. The fast component, which we assign to surface-mediated recombination, grew in relative amplitude from 18 % to 27 % over the cycling series, while the slow component lifetime was unchanged within experimental uncertainty. This is consistent with the introduction of a modest population of new surface trap states rather than with degradation of the core itself, and it explains why emission wavelength remained stable while intensity fell.
+
+We also examined whether the order of thermal exposure mattered. A separate four-monolayer batch was subjected to the same total thermal dose delivered as five long holds rather than twenty five short cycles. Final quantum yield differed by less than the batch-to-batch variation we observed elsewhere, suggesting that cumulative time above the ligand desorption threshold, not the number of thermal transitions, governs degradation in this regime. This is a useful simplification for accelerated-life testing, though it may not extend to systems where thermal expansion mismatch drives mechanical failure.
+
+
+Discussion
+
+Taken together, these observations support a straightforward design rule: shell thickness between four and six monolayers offers the best balance of initial brightness and thermal durability for CdSe/ZnS systems. Below this range, surface passivation is inadequate and aggregation dominates. Above it, accumulated strain introduces defects faster than additional confinement can compensate.
+
+The aggregation mechanism we propose for the thin-shell case deserves further scrutiny. Ligand desorption at 423 K is well documented, but the extent to which aggregation is reversible under re-ligation has not been established [9]. If a substantial fraction of the observed quantum yield loss could be recovered by post-cycling ligand exchange, the practical significance of thin-shell degradation would be considerably reduced. We did not test this, and we regard it as the most valuable immediate extension of this work.
+
+A limitation of the present study is the exclusion of oxygen. Real display modules are encapsulated but not hermetically sealed, and oxidative and thermal degradation pathways may couple in ways that a nitrogen-purged experiment cannot reveal. Our results should therefore be read as an upper bound on thermal durability rather than a prediction of service life.
+
+It is worth situating these numbers against the requirements of the application. A display backlight operating continuously at 350 K accumulates thermal dose far more slowly than our accelerated protocol, and a linear extrapolation from twenty five cycles at 423 K to service life at 350 K would be unjustified without an activation energy. We deliberately refrain from making that extrapolation. What our data support is a comparative ranking of shell thicknesses under identical conditions, which is the question a formulator actually faces.
+
+The absence of an oxygen-containing arm in this study also limits comparison with the encapsulation literature, where oxidative and photo-oxidative pathways dominate the reported failure modes . Several groups have argued that thermal and oxidative degradation are not independent, and that elevated temperature accelerates oxygen diffusion through the ligand shell as much as it drives ligand desorption. Distinguishing those contributions would require a factorial design that we did not attempt here.
+
+
+Finally, we note a methodological caveat concerning the quantum yield reference. Rhodamine 6G is a convenient standard but its own yield is mildly temperature and solvent dependent, and small systematic errors in the reference propagate directly into the reported absolute yields. Because our central claims are comparative rather than absolute, and because every batch was referenced against the same standard solution measured on the same day, we regard the ranking as robust even if the absolute values carry a few percentage points of systematic uncertainty. Workers seeking absolute yields for radiometric design should re-measure against an integrating sphere.
+
+
+Conclusion
+
+We have characterised the thermal durability of CdSe/ZnS core-shell quantum dots across four shell thicknesses and twenty five heating cycles. Shell thickness in the range of four to six monolayers gives the best combination of initial quantum yield and retention, with thinner shells failing through aggregation and thicker shells suffering from strain-induced defects. These results provide a practical design target for QD backlight formulations operating above 350 K.
+
+References
+
+1. Williams AT, Winfield SA, Miller JN. Relative fluorescence quantum yields using a computer-controlled luminescence spectrometer. Analyst. 1983;108(1290):1067-1071. doi:10.1039/AN9830801067
+2. Chen O, Zhao J, Chauhan VP, et al. Compact high-quality CdSe-CdS core-shell nanocrystals with narrow emission linewidths. Nat Mater. 2013;12(5):445-451. doi:10.1038/nmat3539
+3. Bae WK, Padilha LA, Park YS, et al. Controlled alloying of the core-shell interface in CdSe/CdS quantum dots. ACS Nano. 2013;7(4):3411-3419. doi:10.1021/nn4002825
+4. Brus LE. Electron-electron and electron-hole interactions in small semiconductor crystallites. J Chem Phys. 1984;80(9):4403-4409. doi:10.1063/1.447218
+5. Hines MA, Guyot-Sionnest P. Synthesis and characterization of strongly luminescing ZnS-capped CdSe nanocrystals. J Phys Chem. 1996;100(2):468-471. doi:10.1021/jp9530562
+6. Li Y, Li BQ. Use of CdTe quantum dots for high temperature thermal sensing. RSC Adv. 2014;4(47):24612-24618. doi:10.1039/C4RA03002H
+7. Nakamura H, Kato W, Uehara M, et al. Tunable photoluminescence wavelength of chalcopyrite CuInS2-based semiconductor nanocrystals. Chem Mater. 2006;18(14):3330-3335. doi:10.1021/cm0518022
+8. Smith AM, Mohs AM, Nie S. Tuning the optical and electronic properties of colloidal nanocrystals by lattice strain. Nat Nanotechnol. 2009;4(1):56-63. doi:10.1038/nnano.2008.360
+9. Munro AM, Ginger DS. Photoluminescence quenching of single CdSe nanocrystals by ligand adsorption. Nano Lett. 2008;8(8):2585-2590. doi:10.1021/nl801132t

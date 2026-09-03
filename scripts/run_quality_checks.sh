@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "[1/3] Python compile checks"
-python3 -m py_compile main.py webapp.py app_store.py manuscript_service.py journal_recommender.py document_processor.py chicago_editor.py job_queue.py routes/*.py scripts/check_dependency_lock.py scripts/check_version_consistency.py
+python3 -m py_compile scripts/benchmark_ai_models.py main.py webapp.py app_store.py manuscript_service.py journal_recommender.py document_processor.py chicago_editor.py job_queue.py routes/*.py scripts/check_dependency_lock.py scripts/check_version_consistency.py
 python3 scripts/check_version_consistency.py
 python3 scripts/check_dependency_lock.py
 
